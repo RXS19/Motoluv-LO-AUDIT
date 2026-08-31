@@ -180,14 +180,58 @@ const SellerDashboard = () => {
   const pendingOffers = offers.filter(o => o.status === 'ENVIADA' || o.status === 'PENDIENTE' || o.status === 'pending' || !o.status);
   const acceptedOffers = offers.filter(o => o.status === 'ACEPTADA' || o.status === 'accepted');
   const activeApartados = apartados.filter(a => a.status === 'REALIZADO');
-  const inspections = apartados.filter(
-    (a) => a.certification_status || a.certification_appointment_status || a.certification_appointment_at
-  );
-  const apartadosPendingAppointment = apartados.filter((a) => {
-    if (a.status !== 'REALIZADO') return false;
-    const st = (a.certification_appointment_status || '').toUpperCase();
-    return !st || st === 'CANCELADA' || st === 'NO_PRESENTADO';
-  });
+
+  // Deduplicate inspections per moto_id so the certification belongs to the motorcycle
+  const inspections = useMemo(() => {
+    const map = new Map();
+    for (const a of apartados) {
+      const key = a.moto_id || a.id;
+      if (!map.has(key)) {
+        map.set(key, a);
+      } else {
+        const current = map.get(key);
+        const curApp = String(current.certification_appointment_status || '').toUpperCase();
+        const newApp = String(a.certification_appointment_status || '').toUpperCase();
+        if (newApp === 'COMPLETADA' || (newApp === 'PROGRAMADA' && curApp !== 'COMPLETADA')) {
+          map.set(key, a);
+        }
+      }
+    }
+    return Array.from(map.values()).filter(
+      (a) => a.certification_status || a.certification_appointment_status || a.certification_appointment_at
+    );
+  }, [apartados]);
+
+  // A motorcycle needs appointment scheduling only if it has an active apartado
+  // AND has NO valid appointment (neither PROGRAMADA nor COMPLETADA/APROBADA).
+  // Deduplicated per moto_id to prevent duplicate scheduling prompts.
+  const apartadosPendingAppointment = useMemo(() => {
+    const motosPending = new Map();
+    const programmedOrCompletedMotoIds = new Set();
+
+    apartados.forEach((a) => {
+      const st = String(a.certification_appointment_status || '').toUpperCase();
+      const cert = String(a.certification_status || '').toUpperCase();
+      if (st === 'PROGRAMADA' || st === 'COMPLETADA' || cert === 'APROBADA' || cert === 'CERTIFICADA') {
+        if (a.moto_id) programmedOrCompletedMotoIds.add(String(a.moto_id));
+      }
+    });
+
+    apartados.forEach((a) => {
+      if (a.status !== 'REALIZADO') return;
+      if (a.moto_id && programmedOrCompletedMotoIds.has(String(a.moto_id))) return;
+      const st = String(a.certification_appointment_status || '').toUpperCase();
+      const cert = String(a.certification_status || '').toUpperCase();
+      if (st === 'PROGRAMADA' || st === 'COMPLETADA' || cert === 'APROBADA' || cert === 'CERTIFICADA') return;
+
+      const motoKey = String(a.moto_id || a.id);
+      if (!motosPending.has(motoKey)) {
+        motosPending.set(motoKey, a);
+      }
+    });
+
+    return Array.from(motosPending.values());
+  }, [apartados]);
 
 // Helper to calculate the 4-day inspection window [Day 0: created_at .. Day 3: created_at + 3 days]
 const getApartadoScheduleRange = (createdAt) => {
@@ -313,6 +357,7 @@ const getApartadoScheduleRange = (createdAt) => {
     try {
       await apartadoApi.scheduleAppointment({
         apartado_id: selectedApartadoForSchedule.id,
+        moto_id: selectedApartadoForSchedule.moto_id,
         appointment_at: selectedDate,
         workshop_name: chosenWorkshop.name,
         workshop_id: chosenWorkshop.id,
@@ -350,15 +395,16 @@ const getApartadoScheduleRange = (createdAt) => {
 
       const appointmentIso = new Date(selectedDate + 'T12:00:00').toISOString();
 
-      // Immediate state update
+      // Immediate state update across all apartados of this motorcycle
       setApartados((prev) =>
         prev.map((a) =>
-          a.id === selectedApartadoForSchedule.id
+          a.id === selectedApartadoForSchedule.id || (selectedApartadoForSchedule.moto_id && a.moto_id === selectedApartadoForSchedule.moto_id)
             ? {
                 ...a,
                 certification_appointment_at: appointmentIso,
                 certification_appointment_status: 'PROGRAMADA',
                 certification_workshop: chosenWorkshop.name,
+                certification_workshop_id: chosenWorkshop.id,
               }
             : a
         )

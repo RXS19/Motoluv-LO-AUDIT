@@ -442,6 +442,138 @@ export const motoApi = {
   },
 };
 
+export const getMotoCertificationAndAppointment = async (motoId) => {
+  if (!motoId) return null;
+  const motoIdStr = String(motoId);
+
+  // 1. Check in Supabase if configured
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const [apartadosRes, motoRes] = await Promise.all([
+        supabase
+          .from('apartados')
+          .select('id, moto_id, certification_appointment_at, certification_appointment_status, certification_workshop, certification_workshop_id, certification_status, created_at')
+          .eq('moto_id', motoIdStr)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('motos')
+          .select('*')
+          .eq('id', motoIdStr)
+          .single(),
+      ]);
+
+      const apartadosList = Array.isArray(apartadosRes.data) ? apartadosRes.data : [];
+      const motoData = motoRes.data || null;
+
+      let scheduledApp = null;
+      let completedCert = null;
+      let cancelledApp = null;
+
+      for (const ap of apartadosList) {
+        const appStatus = String(ap.certification_appointment_status || '').toUpperCase();
+        const certStatus = String(ap.certification_status || '').toUpperCase();
+
+        if (certStatus === 'APROBADA' || certStatus === 'CERTIFICADA' || certStatus === 'COMPLETADA' || appStatus === 'COMPLETADA') {
+          if (!completedCert) completedCert = ap;
+        }
+        if (appStatus === 'PROGRAMADA' && ap.certification_appointment_at && !scheduledApp) {
+          scheduledApp = ap;
+        }
+        if ((appStatus === 'CANCELADA' || appStatus === 'NO_PRESENTADO') && !cancelledApp) {
+          cancelledApp = ap;
+        }
+      }
+
+      if (motoData) {
+        const mCertStatus = String(motoData.certification_status || motoData.certified_status || '').toUpperCase();
+        const mAppStatus = String(motoData.certification_appointment_status || '').toUpperCase();
+
+        if (
+          mCertStatus === 'APROBADA' ||
+          mCertStatus === 'CERTIFICADA' ||
+          mCertStatus === 'COMPLETADA' ||
+          mAppStatus === 'COMPLETADA' ||
+          (typeof motoData.score === 'number' && motoData.score >= 80)
+        ) {
+          if (!completedCert) {
+            completedCert = {
+              certification_status: 'APROBADA',
+              certification_appointment_status: 'COMPLETADA',
+              certification_appointment_at: motoData.certification_appointment_at || motoData.certified_date || null,
+              certification_workshop: motoData.certification_workshop || motoData.certifier || 'Taller Mecánico Certificado Motoluv',
+              certification_workshop_id: motoData.certification_workshop_id || null,
+            };
+          }
+        }
+
+        if (mAppStatus === 'PROGRAMADA' && motoData.certification_appointment_at && !scheduledApp) {
+          scheduledApp = {
+            certification_appointment_status: 'PROGRAMADA',
+            certification_appointment_at: motoData.certification_appointment_at,
+            certification_workshop: motoData.certification_workshop || 'Taller Mecánico Certificado Motoluv',
+            certification_workshop_id: motoData.certification_workshop_id || null,
+            certification_status: motoData.certification_status || 'PENDIENTE',
+          };
+        }
+      }
+
+      if (completedCert) {
+        return {
+          isCertified: true,
+          isProgrammed: false,
+          isCancelled: false,
+          certification_status: completedCert.certification_status || 'APROBADA',
+          certification_appointment_status: 'COMPLETADA',
+          certification_appointment_at: completedCert.certification_appointment_at || null,
+          certification_workshop: completedCert.certification_workshop || 'Taller Mecánico Certificado Motoluv',
+          certification_workshop_id: completedCert.certification_workshop_id || null,
+        };
+      }
+
+      if (scheduledApp) {
+        return {
+          isCertified: false,
+          isProgrammed: true,
+          isCancelled: false,
+          certification_status: scheduledApp.certification_status || 'PENDIENTE',
+          certification_appointment_status: 'PROGRAMADA',
+          certification_appointment_at: scheduledApp.certification_appointment_at,
+          certification_workshop: scheduledApp.certification_workshop || 'Taller Mecánico Certificado Motoluv',
+          certification_workshop_id: scheduledApp.certification_workshop_id || null,
+        };
+      }
+
+      if (cancelledApp) {
+        return {
+          isCertified: false,
+          isProgrammed: false,
+          isCancelled: true,
+          certification_status: cancelledApp.certification_status || 'PENDIENTE',
+          certification_appointment_status: cancelledApp.certification_appointment_status,
+          certification_appointment_at: cancelledApp.certification_appointment_at || null,
+          certification_workshop: cancelledApp.certification_workshop || null,
+          certification_workshop_id: cancelledApp.certification_workshop_id || null,
+        };
+      }
+
+      return {
+        isCertified: false,
+        isProgrammed: false,
+        isCancelled: false,
+        certification_status: 'PENDIENTE',
+        certification_appointment_status: 'Pendiente',
+        certification_appointment_at: null,
+        certification_workshop: null,
+        certification_workshop_id: null,
+      };
+    } catch (err) {
+      console.warn('Error querying moto certification in Supabase:', err);
+    }
+  }
+
+  return null;
+};
+
 export const apartadoApi = {
   create: async ({ moto_id }) => {
     if (isSupabaseConfigured && supabase) {
@@ -451,7 +583,36 @@ export const apartadoApi = {
 
         const generatedNod = `NOD-${Math.floor(100000 + Math.random() * 900000)}`;
 
-        // Insert into public.apartados with buyer_id, moto_id, status and nod
+        // Check if the motorcycle already has an existing appointment or completed certification
+        let existingCert = null;
+        try {
+          existingCert = await getMotoCertificationAndAppointment(moto_id);
+        } catch (e) {
+          console.warn('Error fetching existing moto cert during apartado create:', e);
+        }
+
+        const appointmentFields = {};
+        if (existingCert?.isCertified) {
+          appointmentFields.certification_status = existingCert.certification_status || 'APROBADA';
+          appointmentFields.certification_appointment_status = 'COMPLETADA';
+          if (existingCert.certification_appointment_at) {
+            appointmentFields.certification_appointment_at = existingCert.certification_appointment_at;
+          }
+          if (existingCert.certification_workshop) {
+            appointmentFields.certification_workshop = existingCert.certification_workshop;
+          }
+          if (existingCert.certification_workshop_id) {
+            appointmentFields.certification_workshop_id = existingCert.certification_workshop_id;
+          }
+        } else if (existingCert?.isProgrammed && existingCert.certification_appointment_at) {
+          appointmentFields.certification_appointment_status = 'PROGRAMADA';
+          appointmentFields.certification_appointment_at = existingCert.certification_appointment_at;
+          appointmentFields.certification_workshop = existingCert.certification_workshop;
+          appointmentFields.certification_workshop_id = existingCert.certification_workshop_id;
+          appointmentFields.certification_status = existingCert.certification_status || 'PENDIENTE';
+        }
+
+        // Insert into public.apartados with buyer_id, moto_id, status, nod and synchronized appointment
         let data = null;
         let error = null;
 
@@ -464,6 +625,7 @@ export const apartadoApi = {
                 moto_id: String(moto_id),
                 status: 'REALIZADO',
                 nod: generatedNod,
+                ...appointmentFields,
               },
             ])
             .select('*, moto:motos(*)')
@@ -479,6 +641,7 @@ export const apartadoApi = {
                 buyer_id: session.user.id,
                 moto_id: String(moto_id),
                 status: 'REALIZADO',
+                ...appointmentFields,
               },
             ])
             .select('*, moto:motos(*)')
@@ -495,6 +658,7 @@ export const apartadoApi = {
                 buyer_id: session.user.id,
                 moto_id: String(moto_id),
                 status: 'REALIZADO',
+                ...appointmentFields,
               },
             ])
             .select('*, moto:motos(*)')
@@ -577,6 +741,20 @@ export const apartadoApi = {
               }
             }
 
+            // Sync certification and appointment by moto_id
+            const uniqueMotoIds = [...new Set(data.map((a) => a.moto_id).filter(Boolean))];
+            const motoCertMap = {};
+            await Promise.all(
+              uniqueMotoIds.map(async (mId) => {
+                try {
+                  const certInfo = await getMotoCertificationAndAppointment(mId);
+                  if (certInfo) motoCertMap[mId] = certInfo;
+                } catch {
+                  // ignore
+                }
+              })
+            );
+
             return data.map((a) => {
               const profileInfo = profilesMap[a.moto?.owner_id];
               const isVerified = Boolean(
@@ -585,6 +763,25 @@ export const apartadoApi = {
                 a.moto?.identity_verification_status === 'verified' ||
                 a.moto?.is_verified
               );
+
+              const mCert = motoCertMap[a.moto_id];
+              const appointmentAt = (mCert?.isProgrammed || mCert?.isCertified)
+                ? mCert.certification_appointment_at
+                : a.certification_appointment_at;
+              const appointmentStatus = mCert?.isCertified
+                ? 'COMPLETADA'
+                : mCert?.isProgrammed
+                ? 'PROGRAMADA'
+                : (a.certification_appointment_status || 'Pendiente');
+              const workshop = (mCert?.isProgrammed || mCert?.isCertified)
+                ? (mCert.certification_workshop || a.certification_workshop)
+                : a.certification_workshop;
+              const workshopId = (mCert?.isProgrammed || mCert?.isCertified)
+                ? (mCert.certification_workshop_id || a.certification_workshop_id)
+                : a.certification_workshop_id;
+              const certStatus = mCert?.isCertified
+                ? (mCert.certification_status || 'APROBADA')
+                : (a.certification_status || 'PENDIENTE');
 
               return {
                 ...a,
@@ -597,6 +794,11 @@ export const apartadoApi = {
                 seller_name: profileInfo?.name || a.moto?.owner_name || 'Vendedor Motoluv',
                 seller_is_verified: isVerified,
                 buyer_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Comprador',
+                certification_appointment_at: appointmentAt,
+                certification_appointment_status: appointmentStatus,
+                certification_workshop: workshop,
+                certification_workshop_id: workshopId,
+                certification_status: certStatus,
               };
             });
           }
@@ -629,7 +831,16 @@ export const apartadoApi = {
             .limit(1);
 
           if (!error && Array.isArray(data) && data.length > 0) {
-            return data[0];
+            const item = data[0];
+            const mCert = await getMotoCertificationAndAppointment(motoId);
+            if (mCert?.isProgrammed || mCert?.isCertified) {
+              item.certification_appointment_at = mCert.certification_appointment_at;
+              item.certification_appointment_status = mCert.certification_appointment_status;
+              item.certification_workshop = mCert.certification_workshop;
+              item.certification_workshop_id = mCert.certification_workshop_id;
+              item.certification_status = mCert.certification_status;
+            }
+            return item;
           }
         }
       } catch (err) {
@@ -669,18 +880,58 @@ export const apartadoApi = {
               }
             }
 
-            return filtered.map((a) => ({
-              ...a,
-              nod: a.nod || (a.id ? `NOD-${String(a.id).replace(/\D/g, '').slice(0, 6).padStart(6, '0')}` : 'NOD-000100'),
-              moto_brand: a.moto?.brand,
-              moto_model: a.moto?.model,
-              moto_year: a.moto?.year,
-              moto_price: a.moto?.price,
-              moto_city: a.moto?.city,
-              moto_image: a.moto?.images?.[0] || a.moto?.image,
-              seller_name: a.moto?.owner_name || session.user.user_metadata?.full_name || 'Vendedor',
-              buyer_name: profilesMap[a.buyer_id] || a.buyer_name || 'Comprador Motoluv',
-            }));
+            // Sync certification and appointment by moto_id
+            const uniqueMotoIds = [...new Set(filtered.map((a) => a.moto_id).filter(Boolean))];
+            const motoCertMap = {};
+            await Promise.all(
+              uniqueMotoIds.map(async (mId) => {
+                try {
+                  const certInfo = await getMotoCertificationAndAppointment(mId);
+                  if (certInfo) motoCertMap[mId] = certInfo;
+                } catch {
+                  // ignore
+                }
+              })
+            );
+
+            return filtered.map((a) => {
+              const mCert = motoCertMap[a.moto_id];
+              const appointmentAt = (mCert?.isProgrammed || mCert?.isCertified)
+                ? mCert.certification_appointment_at
+                : a.certification_appointment_at;
+              const appointmentStatus = mCert?.isCertified
+                ? 'COMPLETADA'
+                : mCert?.isProgrammed
+                ? 'PROGRAMADA'
+                : (a.certification_appointment_status || 'Pendiente');
+              const workshop = (mCert?.isProgrammed || mCert?.isCertified)
+                ? (mCert.certification_workshop || a.certification_workshop)
+                : a.certification_workshop;
+              const workshopId = (mCert?.isProgrammed || mCert?.isCertified)
+                ? (mCert.certification_workshop_id || a.certification_workshop_id)
+                : a.certification_workshop_id;
+              const certStatus = mCert?.isCertified
+                ? (mCert.certification_status || 'APROBADA')
+                : (a.certification_status || 'PENDIENTE');
+
+              return {
+                ...a,
+                nod: a.nod || (a.id ? `NOD-${String(a.id).replace(/\D/g, '').slice(0, 6).padStart(6, '0')}` : 'NOD-000100'),
+                moto_brand: a.moto?.brand,
+                moto_model: a.moto?.model,
+                moto_year: a.moto?.year,
+                moto_price: a.moto?.price,
+                moto_city: a.moto?.city,
+                moto_image: a.moto?.images?.[0] || a.moto?.image,
+                seller_name: a.moto?.owner_name || session.user.user_metadata?.full_name || 'Vendedor',
+                buyer_name: profilesMap[a.buyer_id] || a.buyer_name || 'Comprador Motoluv',
+                certification_appointment_at: appointmentAt,
+                certification_appointment_status: appointmentStatus,
+                certification_workshop: workshop,
+                certification_workshop_id: workshopId,
+                certification_status: certStatus,
+              };
+            });
           }
         }
       } catch (err) {
@@ -696,38 +947,144 @@ export const apartadoApi = {
     }
   },
 
-  scheduleAppointment: async ({ apartado_id, appointment_at, workshop_name, workshop_id }) => {
-    if (!apartado_id || !appointment_at) {
+  scheduleAppointment: async ({ apartado_id, appointment_at, workshop_name, workshop_id, moto_id }) => {
+    if (!apartado_id && !moto_id) {
+      throw new Error('ID de apartado o motocicleta requerido.');
+    }
+
+    let targetMotoId = moto_id ? String(moto_id) : null;
+
+    // 1. Resolve moto_id if not directly provided
+    if (!targetMotoId && apartado_id && isSupabaseConfigured && supabase) {
+      try {
+        const { data: ap } = await supabase
+          .from('apartados')
+          .select('id, moto_id, certification_appointment_status, certification_appointment_at, certification_workshop, certification_workshop_id, certification_status')
+          .eq('id', apartado_id)
+          .single();
+        if (ap?.moto_id) {
+          targetMotoId = String(ap.moto_id);
+        }
+      } catch (err) {
+        console.warn('Could not query target apartado for moto_id:', err);
+      }
+    }
+
+    // 2. Search by moto_id
+    if (targetMotoId) {
+      const existingInfo = await getMotoCertificationAndAppointment(targetMotoId);
+
+      // Rule 3: If completed + approved certification exists, REUSE IT. NO crear otra.
+      if (existingInfo?.isCertified) {
+        const syncPayload = {
+          certification_status: existingInfo.certification_status || 'APROBADA',
+          certification_appointment_status: 'COMPLETADA',
+          certification_appointment_at: existingInfo.certification_appointment_at || null,
+          certification_workshop: existingInfo.certification_workshop || null,
+          certification_workshop_id: existingInfo.certification_workshop_id || null,
+        };
+
+        if (isSupabaseConfigured && supabase) {
+          try {
+            await supabase.from('apartados').update(syncPayload).eq('moto_id', targetMotoId);
+          } catch (e) {
+            console.warn('Error syncing completed cert to apartados:', e);
+          }
+        }
+
+        return {
+          reused: true,
+          isCertified: true,
+          ...syncPayload,
+          message: 'La motocicleta ya cuenta con certificación completada y aprobada.',
+        };
+      }
+
+      // Rule 2: If appointment PROGRAMADA already exists, REUSE IT. NO crear otra.
+      if (existingInfo?.isProgrammed && existingInfo.certification_appointment_at) {
+        const syncPayload = {
+          certification_appointment_at: existingInfo.certification_appointment_at,
+          certification_appointment_status: 'PROGRAMADA',
+          certification_workshop: existingInfo.certification_workshop || null,
+          certification_workshop_id: existingInfo.certification_workshop_id || null,
+          certification_status: existingInfo.certification_status || 'PENDIENTE',
+        };
+
+        if (isSupabaseConfigured && supabase) {
+          try {
+            await supabase.from('apartados').update(syncPayload).eq('moto_id', targetMotoId);
+          } catch (e) {
+            console.warn('Error syncing programmed appt to apartados:', e);
+          }
+        }
+
+        return {
+          reused: true,
+          isProgrammed: true,
+          ...syncPayload,
+          message: 'Cita programada existente reutilizada.',
+        };
+      }
+    }
+
+    // Rule 4: Only allow new appointment if none valid or previous was CANCELADA/NO_PRESENTADO
+    if (!appointment_at) {
       throw new Error('ID de apartado y fecha son obligatorios para agendar la cita.');
     }
 
     const appointmentIso = new Date(appointment_at).toISOString();
+    const updatePayload = {
+      certification_appointment_at: appointmentIso,
+      certification_appointment_status: 'PROGRAMADA',
+      certification_workshop: workshop_name || null,
+      certification_workshop_id: workshop_id || null,
+    };
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const updatePayload = {
-          certification_appointment_at: appointmentIso,
-          certification_appointment_status: 'PROGRAMADA',
-          certification_workshop: workshop_name || null,
-          certification_workshop_id: workshop_id || null,
-        };
+        let resultData = null;
 
-        const { data, error } = await supabase
-          .from('apartados')
-          .update(updatePayload)
-          .eq('id', apartado_id)
-          .select('*, moto:motos(*)')
-          .single();
+        if (targetMotoId) {
+          // Update ALL apartados for this moto_id so buyer and seller always have the exact same appointment
+          await supabase
+            .from('apartados')
+            .update(updatePayload)
+            .eq('moto_id', targetMotoId);
 
-        if (error) {
-          console.error('Error updating appointment in Supabase:', error);
-          throw error;
+          try {
+            await supabase
+              .from('motos')
+              .update({
+                certification_appointment_at: appointmentIso,
+                certification_appointment_status: 'PROGRAMADA',
+                certification_workshop: workshop_name || null,
+                certification_workshop_id: workshop_id || null,
+              })
+              .eq('id', targetMotoId);
+          } catch {
+            // ignore if motos columns differ
+          }
+        }
+
+        if (apartado_id) {
+          const { data, error } = await supabase
+            .from('apartados')
+            .update(updatePayload)
+            .eq('id', apartado_id)
+            .select('*, moto:motos(*)')
+            .single();
+
+          if (error) {
+            console.error('Error updating appointment in Supabase:', error);
+            throw error;
+          }
+          resultData = data;
         }
 
         // Auto mark related notification as attended/read
         try {
           const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user?.id) {
+          if (session?.user?.id && apartado_id) {
             await supabase
               .from('notifications')
               .update({ read_at: new Date().toISOString() })
@@ -738,7 +1095,7 @@ export const apartadoApi = {
           // ignore notification mark error
         }
 
-        return data;
+        return resultData || updatePayload;
       } catch (err) {
         console.warn('Supabase schedule appointment error:', err);
         throw err;
@@ -746,10 +1103,11 @@ export const apartadoApi = {
     }
 
     return api
-      .put(`/apartados/${apartado_id}/appointment`, {
+      .put(`/apartados/${apartado_id || 'by-moto'}/appointment`, {
         appointment_at: appointmentIso,
         workshop_name,
         workshop_id,
+        moto_id: targetMotoId,
         status: 'PROGRAMADA',
       })
       .then((r) => r.data);

@@ -237,10 +237,10 @@ export const resolveOperationTimeline = (item) => {
     item.moto?.is_verified
   );
 
-  // Normalized certification status
+  // Normalized certification status (strictly APROBADA, RECHAZADA, or PENDIENTE)
   let certificationDisplay = 'PENDIENTE';
-  if (rawCertStatus === 'CERTIFICADA' || rawCertStatus === 'APROBADA') {
-    certificationDisplay = 'CERTIFICADA';
+  if (rawCertStatus === 'APROBADA' || rawCertStatus === 'CERTIFICADA') {
+    certificationDisplay = 'APROBADA';
   } else if (rawCertStatus === 'RECHAZADA' || rawCertStatus === 'NO_APROBADA') {
     certificationDisplay = 'RECHAZADA';
   }
@@ -420,15 +420,21 @@ const OperationsTimelineViewer = ({
         <div className="space-y-4">
           {paginatedItems.map((op) => {
             const rawAppStatus = op.appointmentStatus;
-            const isAppCompleted = rawAppStatus === 'COMPLETADA' || op.certificationStatus === 'CERTIFICADA';
+            const isAppCompleted = rawAppStatus === 'COMPLETADA';
             const isAppProgrammed = rawAppStatus === 'PROGRAMADA';
             const isAppCancelled = rawAppStatus === 'CANCELADA';
+            const isAppExpired = rawAppStatus === 'EXPIRADA' || rawAppStatus === 'EXPIRADO';
             const isAppNoShow = rawAppStatus === 'NO_PRESENTADO';
+            const isDimmed = isAppCancelled || isAppExpired;
 
             return (
               <div
                 key={op.id}
-                className="p-5 sm:p-6 bg-[#101013] border border-white/5 rounded-2xl hover:border-white/10 transition-colors flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-6"
+                className={`p-5 sm:p-6 bg-[#101013] border border-white/5 rounded-2xl flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-6 transition-all ${
+                  isDimmed
+                    ? 'opacity-70 saturate-[0.70] hover:opacity-90 hover:saturate-100'
+                    : 'opacity-100 hover:border-white/10'
+                }`}
               >
                 {/* 1. LEFT COLUMN: Vehicle Thumbnail, Title, NOD, Price & Counterparty Info */}
                 <div className="flex items-center gap-4 min-w-[280px] sm:min-w-[320px]">
@@ -604,7 +610,7 @@ const OperationsTimelineViewer = ({
                             Cita confirmada (no editable)
                           </span>
                         </div>
-                      ) : isAppCancelled || isAppNoShow ? (
+                      ) : isAppCancelled || isAppExpired || isAppNoShow ? (
                         <button
                           type="button"
                           onClick={() => onScheduleAppointment?.(op.raw)}
@@ -625,10 +631,10 @@ const OperationsTimelineViewer = ({
                   ) : (
                     /* Buyer Certification Summary (NO workshop, NO appointment) */
                     <div className="text-right">
-                      <span className="text-[10px] text-zinc-500 block">Certificación Técnica</span>
+                      <span className="text-[10px] text-zinc-500 block">Dictamen de Certificación</span>
                       <span
                         className={`text-xs font-bold uppercase ${
-                          op.certificationStatus === 'CERTIFICADA'
+                          op.certificationStatus === 'APROBADA'
                             ? 'text-emerald-400'
                             : op.certificationStatus === 'RECHAZADA'
                             ? 'text-red-400'
@@ -796,7 +802,7 @@ const OperationsTimelineViewer = ({
                 <span className="text-zinc-400">Dictamen de Certificación:</span>
                 <span
                   className={`font-bold uppercase ${
-                    selectedOperation.certificationStatus === 'CERTIFICADA'
+                    selectedOperation.certificationStatus === 'APROBADA'
                       ? 'text-emerald-400'
                       : selectedOperation.certificationStatus === 'RECHAZADA'
                       ? 'text-red-400'
@@ -826,7 +832,7 @@ const OperationsTimelineViewer = ({
                         ? 'text-emerald-400'
                         : selectedOperation.appointmentStatus === 'PROGRAMADA'
                         ? 'text-blue-400'
-                        : selectedOperation.appointmentStatus === 'CANCELADA'
+                        : selectedOperation.appointmentStatus === 'CANCELADA' || selectedOperation.appointmentStatus === 'EXPIRADA' || selectedOperation.appointmentStatus === 'EXPIRADO'
                         ? 'text-red-400'
                         : 'text-zinc-300'
                     }`}
@@ -835,6 +841,10 @@ const OperationsTimelineViewer = ({
                       ? 'COMPLETADA'
                       : selectedOperation.appointmentStatus === 'PROGRAMADA'
                       ? 'PROGRAMADA (CONFIRMADA)'
+                      : selectedOperation.appointmentStatus === 'EXPIRADA' || selectedOperation.appointmentStatus === 'EXPIRADO'
+                      ? 'EXPIRADA'
+                      : selectedOperation.appointmentStatus === 'CANCELADA'
+                      ? 'CANCELADA'
                       : selectedOperation.appointmentStatus}
                   </span>
                 </div>

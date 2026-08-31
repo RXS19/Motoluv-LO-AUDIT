@@ -245,6 +245,22 @@ export const resolveOperationTimeline = (item) => {
     certificationDisplay = 'RECHAZADA';
   }
 
+  // Normalized appointment status
+  let appointmentStatusDisplay = 'SIN CITA';
+  if (rawAppStatus === 'COMPLETADA') {
+    appointmentStatusDisplay = 'COMPLETADA';
+  } else if (rawAppStatus === 'PROGRAMADA') {
+    appointmentStatusDisplay = 'PROGRAMADA';
+  } else if (rawAppStatus === 'EXPIRADA' || rawAppStatus === 'EXPIRADO') {
+    appointmentStatusDisplay = 'EXPIRADA';
+  } else if (rawAppStatus === 'CANCELADA' || rawAppStatus === 'CANCELADO') {
+    appointmentStatusDisplay = 'CANCELADA';
+  } else if (rawAppStatus === 'NO_PRESENTADO') {
+    appointmentStatusDisplay = 'NO_PRESENTADO';
+  } else if (rawAppStatus && rawAppStatus !== 'PENDIENTE' && rawAppStatus !== 'SIN CITA' && rawAppStatus !== 'NULL' && rawAppStatus !== 'UNDEFINED') {
+    appointmentStatusDisplay = rawAppStatus;
+  }
+
   return {
     raw: item,
     id: item.id,
@@ -259,7 +275,7 @@ export const resolveOperationTimeline = (item) => {
     buyerInitials: getInitials(item.buyer_name || item.buyer_email || 'Comprador'),
     sellerIsVerified,
     certificationStatus: certificationDisplay,
-    appointmentStatus: rawAppStatus || 'SIN CITA',
+    appointmentStatus: appointmentStatusDisplay,
     workshop: item.certification_workshop || '',
     steps,
     activeStageKey,
@@ -613,22 +629,54 @@ const OperationsTimelineViewer = ({
                             Cita confirmada (no editable)
                           </span>
                         </div>
-                      ) : isAppCancelled || isAppExpired || isAppNoShow ? (
-                        <button
-                          type="button"
-                          onClick={() => onScheduleAppointment?.(op.raw)}
-                          className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
-                        >
-                          <CalendarClock size={13} /> Reagendar cita
-                        </button>
+                      ) : isAppExpired ? (
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="text-[11px] text-red-400 font-semibold block">
+                            CITA EXPIRADA
+                          </span>
+                          {op.workshop && (
+                            <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
+                              {op.workshop}
+                            </span>
+                          )}
+                          {!isNodExpired && !isNodCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => onScheduleAppointment?.(op.raw)}
+                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                            >
+                              <CalendarClock size={13} /> Reagendar cita
+                            </button>
+                          )}
+                        </div>
+                      ) : isAppCancelled || isAppNoShow ? (
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="text-[11px] text-red-400 font-semibold block">
+                            {isAppCancelled ? 'CITA CANCELADA' : 'NO PRESENTADO'}
+                          </span>
+                          {!isNodExpired && !isNodCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => onScheduleAppointment?.(op.raw)}
+                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                            >
+                              <CalendarClock size={13} /> Reagendar cita
+                            </button>
+                          )}
+                        </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => onScheduleAppointment?.(op.raw)}
-                          className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
-                        >
-                          <CalendarClock size={13} /> Agendar inspección
-                        </button>
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="text-[10px] text-zinc-400 font-medium">SIN CITA</span>
+                          {!isNodExpired && !isNodCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => onScheduleAppointment?.(op.raw)}
+                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                            >
+                              <CalendarClock size={13} /> Agendar inspección
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   ) : (
@@ -845,10 +893,10 @@ const OperationsTimelineViewer = ({
                       : selectedOperation.appointmentStatus === 'PROGRAMADA'
                       ? 'PROGRAMADA'
                       : selectedOperation.appointmentStatus === 'EXPIRADA' || selectedOperation.appointmentStatus === 'EXPIRADO'
-                      ? 'EXPIRADA'
-                      : selectedOperation.appointmentStatus === 'CANCELADA'
-                      ? 'CANCELADA'
-                      : selectedOperation.appointmentStatus}
+                      ? 'CITA EXPIRADA'
+                      : selectedOperation.appointmentStatus === 'CANCELADA' || selectedOperation.appointmentStatus === 'CANCELADO'
+                      ? 'CITA CANCELADA'
+                      : selectedOperation.appointmentStatus || 'SIN CITA'}
                   </span>
                 </div>
               )}

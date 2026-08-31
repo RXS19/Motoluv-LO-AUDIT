@@ -1119,10 +1119,15 @@ const getApartadoScheduleRange = (createdAt) => {
                 {inspections.map((insp) => {
                   const rawAppStatus = (insp.certification_appointment_status || '').toUpperCase();
                   const rawCertStatus = (insp.certification_status || '').toUpperCase();
-                  const isCompleted = rawAppStatus === 'COMPLETADA' || rawCertStatus === 'APROBADA' || rawCertStatus === 'RECHAZADA';
+                  const rawNodStatus = (insp.status || '').toUpperCase();
+                  const isCompleted = rawAppStatus === 'COMPLETADA';
                   const isProgrammed = !isCompleted && rawAppStatus === 'PROGRAMADA';
-                  const isCancelled = !isCompleted && !isProgrammed && (rawAppStatus === 'CANCELADA' || rawAppStatus === 'EXPIRADA');
-                  const isNoShow = !isCompleted && !isProgrammed && rawAppStatus === 'NO_PRESENTADO';
+                  const isExpired = !isCompleted && !isProgrammed && (rawAppStatus === 'EXPIRADA' || rawAppStatus === 'EXPIRADO');
+                  const isCancelled = !isCompleted && !isProgrammed && !isExpired && (rawAppStatus === 'CANCELADA' || rawAppStatus === 'CANCELADO');
+                  const isNoShow = !isCompleted && !isProgrammed && !isExpired && !isCancelled && rawAppStatus === 'NO_PRESENTADO';
+                  const isNodExpired = rawNodStatus === 'EXPIRADO' || rawNodStatus === 'EXPIRADA';
+                  const isNodCancelled = rawNodStatus === 'CANCELADO' || rawNodStatus === 'CANCELADA';
+                  const isDimmed = isExpired || isCancelled || isNodExpired || isNodCancelled;
 
                   const certDisplay = (rawCertStatus === 'APROBADA' || rawCertStatus === 'CERTIFICADA')
                     ? 'APROBADA'
@@ -1131,7 +1136,14 @@ const getApartadoScheduleRange = (createdAt) => {
                     : 'PENDIENTE';
 
                   return (
-                    <div key={insp.id} className="p-5 bg-[#101013] border border-white/5 rounded-2xl space-y-4 flex flex-col justify-between">
+                    <div
+                      key={insp.id}
+                      className={`p-5 bg-[#101013] border border-white/5 rounded-2xl space-y-4 flex flex-col justify-between transition-all ${
+                        isDimmed
+                          ? 'opacity-70 saturate-[0.70] hover:opacity-90 hover:saturate-100'
+                          : 'opacity-100 hover:border-white/10'
+                      }`}
+                    >
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase border ${
@@ -1149,11 +1161,15 @@ const getApartadoScheduleRange = (createdAt) => {
                             </span>
                           ) : isProgrammed ? (
                             <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                              CITA PROGRAMADA
+                              PROGRAMADA
+                            </span>
+                          ) : isExpired ? (
+                            <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
+                              CITA EXPIRADA
                             </span>
                           ) : isCancelled ? (
                             <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
-                              CANCELADA
+                              CITA CANCELADA
                             </span>
                           ) : isNoShow ? (
                             <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -1207,7 +1223,7 @@ const getApartadoScheduleRange = (createdAt) => {
                                 ? 'text-emerald-400'
                                 : isProgrammed
                                 ? 'text-blue-400'
-                                : isCancelled
+                                : isExpired || isCancelled
                                 ? 'text-red-400'
                                 : isNoShow
                                 ? 'text-amber-400'
@@ -1216,9 +1232,11 @@ const getApartadoScheduleRange = (createdAt) => {
                               {isCompleted
                                 ? 'COMPLETADA'
                                 : isProgrammed
-                                ? 'CITA PROGRAMADA'
+                                ? 'PROGRAMADA'
+                                : isExpired
+                                ? 'CITA EXPIRADA'
                                 : isCancelled
-                                ? 'CANCELADA'
+                                ? 'CITA CANCELADA'
                                 : isNoShow
                                 ? 'NO PRESENTADO'
                                 : insp.certification_appointment_status || 'SIN CITA'}
@@ -1252,22 +1270,26 @@ const getApartadoScheduleRange = (createdAt) => {
                           >
                             <CalendarClock size={13} /> Ver cita programada
                           </button>
-                        ) : isCancelled || isNoShow ? (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenScheduleModal(insp)}
-                            className="w-full py-2 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-red-brand/20 cursor-pointer"
-                          >
-                            <CalendarClock size={14} /> Reagendar cita
-                          </button>
+                        ) : (isExpired || isCancelled || isNoShow) ? (
+                          !isNodExpired && !isNodCancelled ? (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenScheduleModal(insp)}
+                              className="w-full py-2 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-red-brand/20 cursor-pointer"
+                            >
+                              <CalendarClock size={14} /> Reagendar cita
+                            </button>
+                          ) : null
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenScheduleModal(insp)}
-                            className="w-full py-2 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-red-brand/20 cursor-pointer"
-                          >
-                            <CalendarClock size={14} /> Agendar inspección
-                          </button>
+                          !isNodExpired && !isNodCancelled ? (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenScheduleModal(insp)}
+                              className="w-full py-2 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md shadow-red-brand/20 cursor-pointer"
+                            >
+                              <CalendarClock size={14} /> Agendar inspección
+                            </button>
+                          ) : null
                         )}
                       </div>
                     </div>

@@ -75,11 +75,7 @@ const LoginPage = () => {
 
       <div className="bg-[#111112] border border-white/5 rounded-md p-6 md:p-8 space-y-5">
         {/* Social / OAuth Logins */}
-        <div className="space-y-2.5">
-          <label className="text-xs text-zinc-400 font-medium tracking-wide block text-center mb-2">
-            Acceso rápido con tu cuenta
-          </label>
-          
+        <div>
           <GoogleAuthButton
             onClick={() => handleOAuth('google')}
             isLoading={oauthLoading === 'google'}

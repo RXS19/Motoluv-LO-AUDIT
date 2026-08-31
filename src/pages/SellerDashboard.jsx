@@ -181,56 +181,22 @@ const SellerDashboard = () => {
   const acceptedOffers = offers.filter(o => o.status === 'ACEPTADA' || o.status === 'accepted');
   const activeApartados = apartados.filter(a => a.status === 'REALIZADO');
 
-  // Deduplicate inspections per moto_id so the certification belongs to the motorcycle
+  // Inspections list for Inspecciones tab
   const inspections = useMemo(() => {
-    const map = new Map();
-    for (const a of apartados) {
-      const key = a.moto_id || a.id;
-      if (!map.has(key)) {
-        map.set(key, a);
-      } else {
-        const current = map.get(key);
-        const curApp = String(current.certification_appointment_status || '').toUpperCase();
-        const newApp = String(a.certification_appointment_status || '').toUpperCase();
-        if (newApp === 'COMPLETADA' || (newApp === 'PROGRAMADA' && curApp !== 'COMPLETADA')) {
-          map.set(key, a);
-        }
-      }
-    }
-    return Array.from(map.values()).filter(
+    return (apartados || []).filter(
       (a) => a.certification_status || a.certification_appointment_status || a.certification_appointment_at
     );
   }, [apartados]);
 
-  // A motorcycle needs appointment scheduling only if it has an active apartado
-  // AND has NO valid appointment (neither PROGRAMADA nor COMPLETADA/APROBADA).
-  // Deduplicated per moto_id to prevent duplicate scheduling prompts.
+  // Apartados requiring appointment scheduling (each active NOD with no programmed/completed appointment)
   const apartadosPendingAppointment = useMemo(() => {
-    const motosPending = new Map();
-    const programmedOrCompletedMotoIds = new Set();
-
-    apartados.forEach((a) => {
+    return (apartados || []).filter((a) => {
+      if (a.status !== 'REALIZADO') return false;
       const st = String(a.certification_appointment_status || '').toUpperCase();
       const cert = String(a.certification_status || '').toUpperCase();
-      if (st === 'PROGRAMADA' || st === 'COMPLETADA' || cert === 'APROBADA' || cert === 'CERTIFICADA') {
-        if (a.moto_id) programmedOrCompletedMotoIds.add(String(a.moto_id));
-      }
+      if (st === 'PROGRAMADA' || st === 'COMPLETADA' || cert === 'APROBADA' || cert === 'CERTIFICADA') return false;
+      return true;
     });
-
-    apartados.forEach((a) => {
-      if (a.status !== 'REALIZADO') return;
-      if (a.moto_id && programmedOrCompletedMotoIds.has(String(a.moto_id))) return;
-      const st = String(a.certification_appointment_status || '').toUpperCase();
-      const cert = String(a.certification_status || '').toUpperCase();
-      if (st === 'PROGRAMADA' || st === 'COMPLETADA' || cert === 'APROBADA' || cert === 'CERTIFICADA') return;
-
-      const motoKey = String(a.moto_id || a.id);
-      if (!motosPending.has(motoKey)) {
-        motosPending.set(motoKey, a);
-      }
-    });
-
-    return Array.from(motosPending.values());
   }, [apartados]);
 
 // Helper to calculate the 4-day inspection window [Day 0: created_at .. Day 3: created_at + 3 days]

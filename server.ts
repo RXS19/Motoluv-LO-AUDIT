@@ -1115,41 +1115,12 @@ api.get('/auth/me', authenticateToken, (req, res) => {
       .filter((a) => a.buyer_id === user.id)
       .map((a) => {
         const moto = db.motos.get(a.moto_id);
-        const motoApartados = allApartados.filter((item) => item.moto_id === a.moto_id);
-        const approved = motoApartados.find((item) => String(item.certification_status).toUpperCase() === 'APROBADA' || String(item.certification_status).toUpperCase() === 'CERTIFICADA');
-        const rejected = motoApartados.find((item) => String(item.certification_status).toUpperCase() === 'RECHAZADA' || String(item.certification_status).toUpperCase() === 'NO_APROBADA');
-        const validProg = motoApartados.find(
-          (item) => String(item.certification_appointment_status).toUpperCase() === 'PROGRAMADA' && String(item.status).toUpperCase() === 'REALIZADO'
-        );
-
-        let appointmentAt = a.certification_appointment_at;
-        let appointmentStatus = a.certification_appointment_status || 'Pendiente';
-        let workshop = a.certification_workshop;
-        let certStatus = a.certification_status || 'PENDIENTE';
-
-        if (approved) {
-          certStatus = 'APROBADA';
-          appointmentStatus = 'COMPLETADA';
-          appointmentAt = approved.certification_appointment_at || appointmentAt;
-          workshop = approved.certification_workshop || workshop;
-        } else if (rejected) {
-          certStatus = 'RECHAZADA';
-          appointmentStatus = 'COMPLETADA';
-          appointmentAt = rejected.certification_appointment_at || appointmentAt;
-          workshop = rejected.certification_workshop || workshop;
-        } else if (String(a.status).toUpperCase() === 'REALIZADO' && validProg) {
-          appointmentStatus = 'PROGRAMADA';
-          appointmentAt = validProg.certification_appointment_at || appointmentAt;
-          workshop = validProg.certification_workshop || workshop;
-          certStatus = 'PENDIENTE';
-        }
-
         return {
           ...a,
-          certification_appointment_at: appointmentAt,
-          certification_appointment_status: appointmentStatus,
-          certification_workshop: workshop,
-          certification_status: certStatus,
+          certification_appointment_at: a.certification_appointment_at || null,
+          certification_appointment_status: a.certification_appointment_status || 'Pendiente',
+          certification_workshop: a.certification_workshop || null,
+          certification_status: a.certification_status || 'PENDIENTE',
           moto_brand: a.moto?.brand || moto?.brand,
           moto_model: a.moto?.model || moto?.model,
           moto_year: a.moto?.year || moto?.year,
@@ -1172,41 +1143,12 @@ api.get('/auth/me', authenticateToken, (req, res) => {
       })
       .map((a) => {
         const moto = db.motos.get(a.moto_id);
-        const motoApartados = allApartados.filter((item) => item.moto_id === a.moto_id);
-        const approved = motoApartados.find((item) => String(item.certification_status).toUpperCase() === 'APROBADA' || String(item.certification_status).toUpperCase() === 'CERTIFICADA');
-        const rejected = motoApartados.find((item) => String(item.certification_status).toUpperCase() === 'RECHAZADA' || String(item.certification_status).toUpperCase() === 'NO_APROBADA');
-        const validProg = motoApartados.find(
-          (item) => String(item.certification_appointment_status).toUpperCase() === 'PROGRAMADA' && String(item.status).toUpperCase() === 'REALIZADO'
-        );
-
-        let appointmentAt = a.certification_appointment_at;
-        let appointmentStatus = a.certification_appointment_status || 'Pendiente';
-        let workshop = a.certification_workshop;
-        let certStatus = a.certification_status || 'PENDIENTE';
-
-        if (approved) {
-          certStatus = 'APROBADA';
-          appointmentStatus = 'COMPLETADA';
-          appointmentAt = approved.certification_appointment_at || appointmentAt;
-          workshop = approved.certification_workshop || workshop;
-        } else if (rejected) {
-          certStatus = 'RECHAZADA';
-          appointmentStatus = 'COMPLETADA';
-          appointmentAt = rejected.certification_appointment_at || appointmentAt;
-          workshop = rejected.certification_workshop || workshop;
-        } else if (String(a.status).toUpperCase() === 'REALIZADO' && validProg) {
-          appointmentStatus = 'PROGRAMADA';
-          appointmentAt = validProg.certification_appointment_at || appointmentAt;
-          workshop = validProg.certification_workshop || workshop;
-          certStatus = 'PENDIENTE';
-        }
-
         return {
           ...a,
-          certification_appointment_at: appointmentAt,
-          certification_appointment_status: appointmentStatus,
-          certification_workshop: workshop,
-          certification_status: certStatus,
+          certification_appointment_at: a.certification_appointment_at || null,
+          certification_appointment_status: a.certification_appointment_status || 'Pendiente',
+          certification_workshop: a.certification_workshop || null,
+          certification_status: a.certification_status || 'PENDIENTE',
           moto_brand: a.moto?.brand || moto?.brand,
           moto_model: a.moto?.model || moto?.model,
           moto_year: a.moto?.year || moto?.year,

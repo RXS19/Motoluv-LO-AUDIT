@@ -797,20 +797,6 @@ export const apartadoApi = {
               }
             }
 
-            // Sync certification and appointment by moto_id
-            const uniqueMotoIds = [...new Set(data.map((a) => a.moto_id).filter(Boolean))];
-            const motoCertMap = {};
-            await Promise.all(
-              uniqueMotoIds.map(async (mId) => {
-                try {
-                  const certInfo = await getMotoCertificationAndAppointment(mId);
-                  if (certInfo) motoCertMap[mId] = certInfo;
-                } catch {
-                  // ignore
-                }
-              })
-            );
-
             return data.map((a) => {
               const profileInfo = profilesMap[a.moto?.owner_id];
               const isVerified = Boolean(
@@ -819,25 +805,6 @@ export const apartadoApi = {
                 a.moto?.identity_verification_status === 'verified' ||
                 a.moto?.is_verified
               );
-
-              const mCert = motoCertMap[a.moto_id];
-              const appointmentAt = (mCert?.isProgrammed || mCert?.isCertified)
-                ? mCert.certification_appointment_at
-                : a.certification_appointment_at;
-              const appointmentStatus = mCert?.isCertified
-                ? 'COMPLETADA'
-                : mCert?.isProgrammed
-                ? 'PROGRAMADA'
-                : (a.certification_appointment_status || 'Pendiente');
-              const workshop = (mCert?.isProgrammed || mCert?.isCertified)
-                ? (mCert.certification_workshop || a.certification_workshop)
-                : a.certification_workshop;
-              const workshopId = (mCert?.isProgrammed || mCert?.isCertified)
-                ? (mCert.certification_workshop_id || a.certification_workshop_id)
-                : a.certification_workshop_id;
-              const certStatus = mCert?.isCertified
-                ? (mCert.certification_status || 'APROBADA')
-                : (a.certification_status || 'PENDIENTE');
 
               return {
                 ...a,
@@ -850,11 +817,11 @@ export const apartadoApi = {
                 seller_name: profileInfo?.name || a.moto?.owner_name || 'Vendedor Motoluv',
                 seller_is_verified: isVerified,
                 buyer_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Comprador',
-                certification_appointment_at: appointmentAt,
-                certification_appointment_status: appointmentStatus,
-                certification_workshop: workshop,
-                certification_workshop_id: workshopId,
-                certification_status: certStatus,
+                certification_appointment_at: a.certification_appointment_at || null,
+                certification_appointment_status: a.certification_appointment_status || 'Pendiente',
+                certification_workshop: a.certification_workshop || null,
+                certification_workshop_id: a.certification_workshop_id || null,
+                certification_status: a.certification_status || 'PENDIENTE',
               };
             });
           }
@@ -936,40 +903,7 @@ export const apartadoApi = {
               }
             }
 
-            // Sync certification and appointment by moto_id
-            const uniqueMotoIds = [...new Set(filtered.map((a) => a.moto_id).filter(Boolean))];
-            const motoCertMap = {};
-            await Promise.all(
-              uniqueMotoIds.map(async (mId) => {
-                try {
-                  const certInfo = await getMotoCertificationAndAppointment(mId);
-                  if (certInfo) motoCertMap[mId] = certInfo;
-                } catch {
-                  // ignore
-                }
-              })
-            );
-
             return filtered.map((a) => {
-              const mCert = motoCertMap[a.moto_id];
-              const appointmentAt = (mCert?.isProgrammed || mCert?.isCertified)
-                ? mCert.certification_appointment_at
-                : a.certification_appointment_at;
-              const appointmentStatus = mCert?.isCertified
-                ? 'COMPLETADA'
-                : mCert?.isProgrammed
-                ? 'PROGRAMADA'
-                : (a.certification_appointment_status || 'Pendiente');
-              const workshop = (mCert?.isProgrammed || mCert?.isCertified)
-                ? (mCert.certification_workshop || a.certification_workshop)
-                : a.certification_workshop;
-              const workshopId = (mCert?.isProgrammed || mCert?.isCertified)
-                ? (mCert.certification_workshop_id || a.certification_workshop_id)
-                : a.certification_workshop_id;
-              const certStatus = mCert?.isCertified
-                ? (mCert.certification_status || 'APROBADA')
-                : (a.certification_status || 'PENDIENTE');
-
               return {
                 ...a,
                 nod: a.nod || (a.id ? `NOD-${String(a.id).replace(/\D/g, '').slice(0, 6).padStart(6, '0')}` : 'NOD-000100'),
@@ -981,11 +915,11 @@ export const apartadoApi = {
                 moto_image: a.moto?.images?.[0] || a.moto?.image,
                 seller_name: a.moto?.owner_name || session.user.user_metadata?.full_name || 'Vendedor',
                 buyer_name: profilesMap[a.buyer_id] || a.buyer_name || 'Comprador Motoluv',
-                certification_appointment_at: appointmentAt,
-                certification_appointment_status: appointmentStatus,
-                certification_workshop: workshop,
-                certification_workshop_id: workshopId,
-                certification_status: certStatus,
+                certification_appointment_at: a.certification_appointment_at || null,
+                certification_appointment_status: a.certification_appointment_status || 'Pendiente',
+                certification_workshop: a.certification_workshop || null,
+                certification_workshop_id: a.certification_workshop_id || null,
+                certification_status: a.certification_status || 'PENDIENTE',
               };
             });
           }

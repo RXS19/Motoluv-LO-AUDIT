@@ -420,12 +420,15 @@ const OperationsTimelineViewer = ({
         <div className="space-y-4">
           {paginatedItems.map((op) => {
             const rawAppStatus = op.appointmentStatus;
+            const rawNodStatus = String(op.raw?.status || '').toUpperCase();
             const isAppCompleted = rawAppStatus === 'COMPLETADA';
             const isAppProgrammed = rawAppStatus === 'PROGRAMADA';
             const isAppCancelled = rawAppStatus === 'CANCELADA';
             const isAppExpired = rawAppStatus === 'EXPIRADA' || rawAppStatus === 'EXPIRADO';
+            const isNodCancelled = rawNodStatus === 'CANCELADO' || rawNodStatus === 'CANCELADA';
+            const isNodExpired = rawNodStatus === 'EXPIRADO' || rawNodStatus === 'EXPIRADA';
             const isAppNoShow = rawAppStatus === 'NO_PRESENTADO';
-            const isDimmed = isAppCancelled || isAppExpired;
+            const isDimmed = isAppCancelled || isAppExpired || isNodCancelled || isNodExpired;
 
             return (
               <div
@@ -840,7 +843,7 @@ const OperationsTimelineViewer = ({
                     {selectedOperation.appointmentStatus === 'COMPLETADA'
                       ? 'COMPLETADA'
                       : selectedOperation.appointmentStatus === 'PROGRAMADA'
-                      ? 'PROGRAMADA (CONFIRMADA)'
+                      ? 'PROGRAMADA'
                       : selectedOperation.appointmentStatus === 'EXPIRADA' || selectedOperation.appointmentStatus === 'EXPIRADO'
                       ? 'EXPIRADA'
                       : selectedOperation.appointmentStatus === 'CANCELADA'

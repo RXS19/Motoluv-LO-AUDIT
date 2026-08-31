@@ -146,23 +146,9 @@ const BuyerDashboard = () => {
     return <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Realizado</span>;
   };
 
-  // Deduplicate inspections per moto_id so the certification belongs to the motorcycle
+  // Inspections per apartado/NOD
   const buyerInspections = useMemo(() => {
-    const map = new Map();
-    for (const a of apartados) {
-      const key = String(a.moto_id || a.id);
-      if (!map.has(key)) {
-        map.set(key, a);
-      } else {
-        const current = map.get(key);
-        const curCert = String(current.certification_status || '').toUpperCase();
-        const newCert = String(a.certification_status || '').toUpperCase();
-        if ((newCert === 'APROBADA' || newCert === 'RECHAZADA') && curCert !== 'APROBADA' && curCert !== 'RECHAZADA') {
-          map.set(key, a);
-        }
-      }
-    }
-    return Array.from(map.values()).filter(
+    return (apartados || []).filter(
       (a) => a.certification_status || a.certification_appointment_status || a.certification_appointment_at
     );
   }, [apartados]);
@@ -836,10 +822,10 @@ const BuyerDashboard = () => {
                       </div>
                     {(() => {
                       const raw = String(ap.certification_status || '').toUpperCase();
-                      const buyerSt = (raw === 'APROBADA' || raw === 'CERTIFICADA') ? 'CERTIFICADA' : (raw === 'RECHAZADA' ? 'RECHAZADA' : 'PENDIENTE');
+                      const buyerSt = (raw === 'APROBADA' || raw === 'CERTIFICADA') ? 'APROBADA' : (raw === 'RECHAZADA' ? 'RECHAZADA' : 'PENDIENTE');
                       return (
                         <span className={`px-3 py-1 text-xs font-bold rounded-full border ${
-                          buyerSt === 'CERTIFICADA'
+                          buyerSt === 'APROBADA'
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                             : buyerSt === 'RECHAZADA'
                             ? 'bg-red-500/10 text-red-400 border-red-500/20'
@@ -856,10 +842,10 @@ const BuyerDashboard = () => {
                       <span className="text-zinc-500 block">Dictamen de Certificación</span>
                       {(() => {
                         const raw = String(ap.certification_status || '').toUpperCase();
-                        const buyerSt = (raw === 'APROBADA' || raw === 'CERTIFICADA') ? 'CERTIFICADA' : (raw === 'RECHAZADA' ? 'RECHAZADA' : 'PENDIENTE');
+                        const buyerSt = (raw === 'APROBADA' || raw === 'CERTIFICADA') ? 'APROBADA' : (raw === 'RECHAZADA' ? 'RECHAZADA' : 'PENDIENTE');
                         return (
                           <span className={`font-bold uppercase ${
-                            buyerSt === 'CERTIFICADA' ? 'text-emerald-400' : buyerSt === 'RECHAZADA' ? 'text-red-400' : 'text-amber-400'
+                            buyerSt === 'APROBADA' ? 'text-emerald-400' : buyerSt === 'RECHAZADA' ? 'text-red-400' : 'text-amber-400'
                           }`}>
                             {buyerSt}
                           </span>

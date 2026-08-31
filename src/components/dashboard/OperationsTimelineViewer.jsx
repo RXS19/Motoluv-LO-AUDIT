@@ -247,7 +247,11 @@ export const resolveOperationTimeline = (item) => {
 
   // Normalized appointment status
   let appointmentStatusDisplay = 'SIN CITA';
-  if (rawAppStatus === 'COMPLETADA') {
+  if ((rawItemStatus === 'EXPIRADO' || rawItemStatus === 'EXPIRADA') && item.certification_appointment_at) {
+    appointmentStatusDisplay = 'EXPIRADA';
+  } else if ((rawItemStatus === 'CANCELADO' || rawItemStatus === 'CANCELADA') && item.certification_appointment_at) {
+    appointmentStatusDisplay = 'CANCELADA';
+  } else if (rawAppStatus === 'COMPLETADA') {
     appointmentStatusDisplay = 'COMPLETADA';
   } else if (rawAppStatus === 'PROGRAMADA') {
     appointmentStatusDisplay = 'PROGRAMADA';

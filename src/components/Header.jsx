@@ -215,7 +215,7 @@ const Header = () => {
               <div className="px-4 py-3 bg-white/[0.03] border-b border-white/10 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-red-brand animate-pulse" />
-                  <span className="text-[10px] font-mono font-bold tracking-widest text-zinc-300 uppercase">
+                  <span className="text-xs font-display font-bold tracking-wider text-zinc-200 uppercase">
                     MENÚ
                   </span>
                 </div>

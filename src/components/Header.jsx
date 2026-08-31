@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Bike, Store, Menu, X, LayoutDashboard, Tag, LogOut, Repeat, ShoppingCart, User, ChevronRight, Sparkles, HelpCircle } from 'lucide-react';
+import { Bike, Store, Menu, X, LayoutDashboard, Tag, LogOut, Repeat, ShoppingCart, User, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -27,8 +27,13 @@ const Header = () => {
   const isActive = (p) => location.pathname === p || (p !== '/' && location.pathname.startsWith(p));
 
   const navItems = [
-    { to: '/como-funciona', label: 'Cómo Funciona', icon: HelpCircle },
-    { to: '/motos', label: 'Motocicletas', icon: Bike },
+    { to: '/como-funciona', label: 'Cómo Funciona' },
+    { to: '/motos', label: 'Motocicletas' },
+    { to: '/tienda', label: 'Tienda', icon: Store },
+  ];
+
+  const mobileNavItems = [
+    { to: '/motos', label: 'Motocicletas' },
     { to: '/tienda', label: 'Tienda', icon: Store },
   ];
 
@@ -210,8 +215,8 @@ const Header = () => {
               <div className="px-4 py-3 bg-white/[0.03] border-b border-white/10 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-red-brand animate-pulse" />
-                  <span className="text-[10px] font-mono font-bold tracking-widest text-zinc-400 uppercase">
-                    ETIQUETA // MENÚ
+                  <span className="text-[10px] font-mono font-bold tracking-widest text-zinc-300 uppercase">
+                    MENÚ
                   </span>
                 </div>
                 {/* Metallic tag grommet / eyelet */}
@@ -224,7 +229,7 @@ const Header = () => {
 
               {/* Navigation Items */}
               <div className="p-3 space-y-1">
-                {navItems.map(({ to, label, icon: Icon }) => {
+                {mobileNavItems.map(({ to, label, icon: Icon }) => {
                   const active = isActive(to);
                   return (
                     <Link
@@ -238,13 +243,15 @@ const Header = () => {
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <div
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                            active ? 'bg-red-brand text-white' : 'bg-white/5 text-zinc-400'
-                          }`}
-                        >
-                          {Icon && <Icon size={16} />}
-                        </div>
+                        {Icon && (
+                          <div
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                              active ? 'bg-red-brand text-white' : 'bg-white/5 text-zinc-400'
+                            }`}
+                          >
+                            <Icon size={16} />
+                          </div>
+                        )}
                         <span>{label}</span>
                       </div>
                       <ChevronRight
@@ -330,25 +337,19 @@ const Header = () => {
                         setOpen(false);
                         navigate('/registro');
                       }}
-                      className="w-full py-2.5 bg-red-brand hover:bg-red-600 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md shadow-red-brand/20 flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full py-2.5 bg-red-brand hover:bg-red-600 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md shadow-red-brand/20 flex items-center justify-center cursor-pointer"
                     >
-                      <Sparkles size={14} /> Registrarse
+                      Registrarse
                     </button>
                     <Link
                       to="/iniciar-sesion"
                       onClick={() => setOpen(false)}
-                      className="w-full py-2 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white text-xs font-semibold rounded-xl border border-white/10 flex items-center justify-center transition-colors"
+                      className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-zinc-200 hover:text-white text-xs font-bold uppercase tracking-wider rounded-xl border border-white/10 flex items-center justify-center transition-colors"
                     >
-                      Iniciar Sesión
+                      INICIAR SESIÓN
                     </Link>
                   </div>
                 )}
-              </div>
-
-              {/* Tag Footer Barcode / Ref */}
-              <div className="px-4 py-2 bg-black/40 border-t border-white/5 flex items-center justify-between text-[9px] font-mono text-zinc-500">
-                <span className="tracking-widest">REF-MLV // 2026</span>
-                <span className="text-zinc-400 font-semibold">MOTOLUV VERIFIED</span>
               </div>
             </div>
           </motion.div>

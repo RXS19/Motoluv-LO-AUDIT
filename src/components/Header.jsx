@@ -145,10 +145,35 @@ const Header = () => {
           )}
         </div>
 
-        {/* Mobile toggle */}
-        <button className="md:hidden text-white" onClick={() => setOpen(!open)}>
-          {open ? <X /> : <Menu />}
-        </button>
+        {/* Mobile Right Controls: Cart, Notifications Bell, Hamburger Menu */}
+        <div className="flex md:hidden items-center gap-2">
+          <button
+            onClick={() => setIsCartOpen(true)}
+            className="relative p-2 rounded-full border border-white/10 hover:border-red-brand/50 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            title="Ver carrito de compra"
+            aria-label="Ver carrito"
+          >
+            <ShoppingCart size={18} />
+            {cartCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-brand text-white text-[10px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center font-mono">
+                {cartCount}
+              </span>
+            )}
+          </button>
+
+          <NotificationBell
+            buttonClassName="relative p-2 rounded-full border border-white/10 hover:border-red-brand/50 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            iconSize={18}
+          />
+
+          <button
+            className="p-2 text-white hover:text-red-brand transition-colors cursor-pointer flex items-center justify-center rounded-lg hover:bg-white/5"
+            onClick={() => setOpen(!open)}
+            aria-label={open ? "Cerrar menú" : "Abrir menú"}
+          >
+            {open ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </div>
 
       {open && (

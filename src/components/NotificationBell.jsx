@@ -25,7 +25,7 @@ const formatTimeAgo = (dateStr) => {
   }
 };
 
-export const NotificationBell = ({ buttonClassName, iconSize = 17 }) => {
+export const NotificationBell = ({ buttonClassName, iconSize = 17, dropdownClassName }) => {
   const { user } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -154,7 +154,7 @@ export const NotificationBell = ({ buttonClassName, iconSize = 17 }) => {
       </button>
 
       {showNotifications && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-88 bg-[#121216] border border-white/10 rounded-xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95 duration-150 text-left">
+        <div className={dropdownClassName || "absolute -right-12 sm:right-0 mt-2 w-[calc(100vw-2.5rem)] sm:w-88 max-w-sm bg-[#121216] border border-white/10 rounded-xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95 duration-150 text-left"}>
           <div className="flex items-center justify-between pb-3 border-b border-white/5">
             <h4 className="text-white text-xs font-bold uppercase tracking-wider">Notificaciones</h4>
             <span className="text-[10px] text-zinc-400">

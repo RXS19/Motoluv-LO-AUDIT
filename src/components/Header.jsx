@@ -167,10 +167,12 @@ const Header = () => {
             )}
           </button>
 
-          <NotificationBell
-            buttonClassName="relative p-2 rounded-full border border-white/10 hover:border-red-brand/50 text-zinc-300 hover:text-white transition-colors cursor-pointer"
-            iconSize={18}
-          />
+          {user && (
+            <NotificationBell
+              buttonClassName="relative p-2 rounded-full border border-white/10 hover:border-red-brand/50 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+              iconSize={18}
+            />
+          )}
 
           <button
             className="p-2 text-white hover:text-red-brand transition-colors cursor-pointer flex items-center justify-center rounded-lg hover:bg-white/5"

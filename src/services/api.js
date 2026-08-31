@@ -452,7 +452,7 @@ export const getMotoCertificationAndAppointment = async (motoId) => {
       const [apartadosRes, motoRes] = await Promise.all([
         supabase
           .from('apartados')
-          .select('id, moto_id, certification_appointment_at, certification_appointment_status, certification_workshop, certification_workshop_id, certification_status, created_at')
+          .select('id, moto_id, certification_appointment_at, certification_appointment_status, certification_workshop, certification_workshop_id, certification_status, status, created_at')
           .eq('moto_id', motoIdStr)
           .order('created_at', { ascending: false }),
         supabase
@@ -465,21 +465,35 @@ export const getMotoCertificationAndAppointment = async (motoId) => {
       const apartadosList = Array.isArray(apartadosRes.data) ? apartadosRes.data : [];
       const motoData = motoRes.data || null;
 
+      let approvedCert = null;
+      let rejectedCert = null;
       let scheduledApp = null;
-      let completedCert = null;
+      let completedApp = null;
       let cancelledApp = null;
 
       for (const ap of apartadosList) {
         const appStatus = String(ap.certification_appointment_status || '').toUpperCase();
         const certStatus = String(ap.certification_status || '').toUpperCase();
+        const apStatus = String(ap.status || '').toUpperCase();
 
-        if (certStatus === 'APROBADA' || certStatus === 'CERTIFICADA' || certStatus === 'COMPLETADA' || appStatus === 'COMPLETADA') {
-          if (!completedCert) completedCert = ap;
+        if (certStatus === 'APROBADA' || certStatus === 'CERTIFICADA') {
+          if (!approvedCert) approvedCert = ap;
+        } else if (certStatus === 'RECHAZADA' || certStatus === 'NO_APROBADA') {
+          if (!rejectedCert) rejectedCert = ap;
         }
-        if (appStatus === 'PROGRAMADA' && ap.certification_appointment_at && !scheduledApp) {
-          scheduledApp = ap;
+
+        // Active scheduled appointment from an active transaction
+        if (appStatus === 'PROGRAMADA' && ap.certification_appointment_at) {
+          if (!scheduledApp && apStatus !== 'EXPIRADO' && apStatus !== 'CANCELADO') {
+            scheduledApp = ap;
+          }
         }
-        if ((appStatus === 'CANCELADA' || appStatus === 'NO_PRESENTADO') && !cancelledApp) {
+
+        if (appStatus === 'COMPLETADA') {
+          if (!completedApp) completedApp = ap;
+        }
+
+        if ((appStatus === 'CANCELADA' || appStatus === 'NO_PRESENTADO' || appStatus === 'EXPIRADA' || apStatus === 'EXPIRADO') && !cancelledApp) {
           cancelledApp = ap;
         }
       }
@@ -488,19 +502,23 @@ export const getMotoCertificationAndAppointment = async (motoId) => {
         const mCertStatus = String(motoData.certification_status || motoData.certified_status || '').toUpperCase();
         const mAppStatus = String(motoData.certification_appointment_status || '').toUpperCase();
 
-        if (
-          mCertStatus === 'APROBADA' ||
-          mCertStatus === 'CERTIFICADA' ||
-          mCertStatus === 'COMPLETADA' ||
-          mAppStatus === 'COMPLETADA' ||
-          (typeof motoData.score === 'number' && motoData.score >= 80)
-        ) {
-          if (!completedCert) {
-            completedCert = {
+        if (mCertStatus === 'APROBADA' || mCertStatus === 'CERTIFICADA' || (typeof motoData.score === 'number' && motoData.score >= 80)) {
+          if (!approvedCert) {
+            approvedCert = {
               certification_status: 'APROBADA',
               certification_appointment_status: 'COMPLETADA',
               certification_appointment_at: motoData.certification_appointment_at || motoData.certified_date || null,
               certification_workshop: motoData.certification_workshop || motoData.certifier || 'Taller Mecánico Certificado Motoluv',
+              certification_workshop_id: motoData.certification_workshop_id || null,
+            };
+          }
+        } else if (mCertStatus === 'RECHAZADA' || mCertStatus === 'NO_APROBADA') {
+          if (!rejectedCert) {
+            rejectedCert = {
+              certification_status: 'RECHAZADA',
+              certification_appointment_status: 'COMPLETADA',
+              certification_appointment_at: motoData.certification_appointment_at || null,
+              certification_workshop: motoData.certification_workshop || 'Taller Mecánico Certificado Motoluv',
               certification_workshop_id: motoData.certification_workshop_id || null,
             };
           }
@@ -517,24 +535,43 @@ export const getMotoCertificationAndAppointment = async (motoId) => {
         }
       }
 
-      if (completedCert) {
+      if (approvedCert) {
         return {
           isCertified: true,
+          isRejected: false,
           isProgrammed: false,
           isCancelled: false,
-          certification_status: completedCert.certification_status || 'APROBADA',
+          isCompleted: true,
+          certification_status: 'APROBADA',
           certification_appointment_status: 'COMPLETADA',
-          certification_appointment_at: completedCert.certification_appointment_at || null,
-          certification_workshop: completedCert.certification_workshop || 'Taller Mecánico Certificado Motoluv',
-          certification_workshop_id: completedCert.certification_workshop_id || null,
+          certification_appointment_at: approvedCert.certification_appointment_at || null,
+          certification_workshop: approvedCert.certification_workshop || 'Taller Mecánico Certificado Motoluv',
+          certification_workshop_id: approvedCert.certification_workshop_id || null,
+        };
+      }
+
+      if (rejectedCert) {
+        return {
+          isCertified: false,
+          isRejected: true,
+          isProgrammed: false,
+          isCancelled: false,
+          isCompleted: true,
+          certification_status: 'RECHAZADA',
+          certification_appointment_status: 'COMPLETADA',
+          certification_appointment_at: rejectedCert.certification_appointment_at || null,
+          certification_workshop: rejectedCert.certification_workshop || 'Taller Mecánico Certificado Motoluv',
+          certification_workshop_id: rejectedCert.certification_workshop_id || null,
         };
       }
 
       if (scheduledApp) {
         return {
           isCertified: false,
+          isRejected: false,
           isProgrammed: true,
           isCancelled: false,
+          isCompleted: false,
           certification_status: scheduledApp.certification_status || 'PENDIENTE',
           certification_appointment_status: 'PROGRAMADA',
           certification_appointment_at: scheduledApp.certification_appointment_at,
@@ -543,13 +580,30 @@ export const getMotoCertificationAndAppointment = async (motoId) => {
         };
       }
 
+      if (completedApp) {
+        return {
+          isCertified: false,
+          isRejected: false,
+          isProgrammed: false,
+          isCancelled: false,
+          isCompleted: true,
+          certification_status: 'PENDIENTE',
+          certification_appointment_status: 'COMPLETADA',
+          certification_appointment_at: completedApp.certification_appointment_at || null,
+          certification_workshop: completedApp.certification_workshop || 'Taller Mecánico Certificado Motoluv',
+          certification_workshop_id: completedApp.certification_workshop_id || null,
+        };
+      }
+
       if (cancelledApp) {
         return {
           isCertified: false,
+          isRejected: false,
           isProgrammed: false,
           isCancelled: true,
-          certification_status: cancelledApp.certification_status || 'PENDIENTE',
-          certification_appointment_status: cancelledApp.certification_appointment_status,
+          isCompleted: false,
+          certification_status: 'PENDIENTE',
+          certification_appointment_status: cancelledApp.certification_appointment_status || 'CANCELADA',
           certification_appointment_at: cancelledApp.certification_appointment_at || null,
           certification_workshop: cancelledApp.certification_workshop || null,
           certification_workshop_id: cancelledApp.certification_workshop_id || null,
@@ -558,10 +612,12 @@ export const getMotoCertificationAndAppointment = async (motoId) => {
 
       return {
         isCertified: false,
+        isRejected: false,
         isProgrammed: false,
         isCancelled: false,
+        isCompleted: false,
         certification_status: 'PENDIENTE',
-        certification_appointment_status: 'Pendiente',
+        certification_appointment_status: 'SIN CITA',
         certification_appointment_at: null,
         certification_workshop: null,
         certification_workshop_id: null,
@@ -974,10 +1030,10 @@ export const apartadoApi = {
     if (targetMotoId) {
       const existingInfo = await getMotoCertificationAndAppointment(targetMotoId);
 
-      // Rule 3: If completed + approved certification exists, REUSE IT. NO crear otra.
-      if (existingInfo?.isCertified) {
+      // Rule 3: If completed + approved or rejected certification exists, REUSE IT. NO crear otra.
+      if (existingInfo?.isCertified || existingInfo?.isRejected) {
         const syncPayload = {
-          certification_status: existingInfo.certification_status || 'APROBADA',
+          certification_status: existingInfo.certification_status,
           certification_appointment_status: 'COMPLETADA',
           certification_appointment_at: existingInfo.certification_appointment_at || null,
           certification_workshop: existingInfo.certification_workshop || null,
@@ -994,9 +1050,12 @@ export const apartadoApi = {
 
         return {
           reused: true,
-          isCertified: true,
+          isCertified: existingInfo.isCertified,
+          isRejected: existingInfo.isRejected,
           ...syncPayload,
-          message: 'La motocicleta ya cuenta con certificación completada y aprobada.',
+          message: existingInfo.isCertified
+            ? 'La motocicleta ya cuenta con certificación completada y aprobada.'
+            : 'La motocicleta ya cuenta con certificación completada y rechazada.',
         };
       }
 

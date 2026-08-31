@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   FileText,
@@ -145,6 +145,27 @@ const BuyerDashboard = () => {
     }
     return <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Realizado</span>;
   };
+
+  // Deduplicate inspections per moto_id so the certification belongs to the motorcycle
+  const buyerInspections = useMemo(() => {
+    const map = new Map();
+    for (const a of apartados) {
+      const key = String(a.moto_id || a.id);
+      if (!map.has(key)) {
+        map.set(key, a);
+      } else {
+        const current = map.get(key);
+        const curCert = String(current.certification_status || '').toUpperCase();
+        const newCert = String(a.certification_status || '').toUpperCase();
+        if ((newCert === 'APROBADA' || newCert === 'RECHAZADA') && curCert !== 'APROBADA' && curCert !== 'RECHAZADA') {
+          map.set(key, a);
+        }
+      }
+    }
+    return Array.from(map.values()).filter(
+      (a) => a.certification_status || a.certification_appointment_status || a.certification_appointment_at
+    );
+  }, [apartados]);
 
   return (
     <div className="min-h-screen bg-[#080809] text-zinc-100 flex flex-col lg:flex-row">
@@ -778,7 +799,7 @@ const BuyerDashboard = () => {
               </span>
             </div>
 
-            {apartados.length === 0 ? (
+            {buyerInspections.length === 0 ? (
               <div className="p-12 bg-[#101013] border border-white/5 rounded-2xl text-center space-y-4 max-w-lg mx-auto">
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto shadow-inner">
                   <ShieldCheck size={32} />
@@ -801,7 +822,7 @@ const BuyerDashboard = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {apartados.map((ap) => (
+                {buyerInspections.map((ap) => (
                   <div key={ap.id} className="p-6 bg-[#101013] border border-white/5 rounded-2xl space-y-5">
                     <div className="flex items-center justify-between pb-4 border-b border-white/5">
                       <div className="flex items-center gap-3">

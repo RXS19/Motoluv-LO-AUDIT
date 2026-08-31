@@ -1152,17 +1152,30 @@ const getApartadoScheduleRange = (createdAt) => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {inspections.map((insp) => {
                   const rawAppStatus = (insp.certification_appointment_status || '').toUpperCase();
-                  const isCompleted = rawAppStatus === 'COMPLETADA';
-                  const isProgrammed = rawAppStatus === 'PROGRAMADA';
-                  const isCancelled = rawAppStatus === 'CANCELADA';
-                  const isNoShow = rawAppStatus === 'NO_PRESENTADO';
+                  const rawCertStatus = (insp.certification_status || '').toUpperCase();
+                  const isCompleted = rawAppStatus === 'COMPLETADA' || rawCertStatus === 'APROBADA' || rawCertStatus === 'RECHAZADA';
+                  const isProgrammed = !isCompleted && rawAppStatus === 'PROGRAMADA';
+                  const isCancelled = !isCompleted && !isProgrammed && (rawAppStatus === 'CANCELADA' || rawAppStatus === 'EXPIRADA');
+                  const isNoShow = !isCompleted && !isProgrammed && rawAppStatus === 'NO_PRESENTADO';
+
+                  const certDisplay = (rawCertStatus === 'APROBADA' || rawCertStatus === 'CERTIFICADA')
+                    ? 'APROBADA'
+                    : (rawCertStatus === 'RECHAZADA' || rawCertStatus === 'NO_APROBADA')
+                    ? 'RECHAZADA'
+                    : 'PENDIENTE';
 
                   return (
                     <div key={insp.id} className="p-5 bg-[#101013] border border-white/5 rounded-2xl space-y-4 flex flex-col justify-between">
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                          <span className="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-bold uppercase">
-                            {insp.certification_status || 'PENDIENTE'}
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase border ${
+                            certDisplay === 'APROBADA'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              : certDisplay === 'RECHAZADA'
+                              ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}>
+                            {certDisplay}
                           </span>
                           {isCompleted ? (
                             <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -1238,12 +1251,24 @@ const getApartadoScheduleRange = (createdAt) => {
                                 ? 'COMPLETADA'
                                 : isProgrammed
                                 ? 'CITA PROGRAMADA'
+                                : isCancelled
+                                ? 'CANCELADA'
+                                : isNoShow
+                                ? 'NO PRESENTADO'
                                 : insp.certification_appointment_status || 'SIN CITA'}
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-zinc-500">Dictamen:</span>
-                            <span className="text-emerald-400 font-bold uppercase">{insp.certification_status || 'PENDIENTE'}</span>
+                            <span className={`font-bold uppercase ${
+                              certDisplay === 'APROBADA'
+                                ? 'text-emerald-400'
+                                : certDisplay === 'RECHAZADA'
+                                ? 'text-red-400'
+                                : 'text-amber-400'
+                            }`}>
+                              {certDisplay}
+                            </span>
                           </div>
                         </div>
                       </div>

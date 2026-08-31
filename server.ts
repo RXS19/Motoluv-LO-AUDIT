@@ -987,18 +987,26 @@ api.get('/auth/me', authenticateToken, (req, res) => {
 
     // Check if there is an existing appointment / certification for this moto_id
     const existingApartadosForMoto = Array.from(db.apartados.values()).filter((a) => a.moto_id === moto_id);
-    let existingProgrammedApp = existingApartadosForMoto.find(
-      (a) => String(a.certification_appointment_status).toUpperCase() === 'PROGRAMADA' && a.certification_appointment_at
-    );
-    let existingCompletedCert = existingApartadosForMoto.find(
+    const existingApprovedCert = existingApartadosForMoto.find(
       (a) =>
         String(a.certification_status).toUpperCase() === 'APROBADA' ||
-        String(a.certification_status).toUpperCase() === 'CERTIFICADA' ||
-        String(a.certification_appointment_status).toUpperCase() === 'COMPLETADA'
+        String(a.certification_status).toUpperCase() === 'CERTIFICADA'
+    );
+    const existingRejectedCert = existingApartadosForMoto.find(
+      (a) =>
+        String(a.certification_status).toUpperCase() === 'RECHAZADA' ||
+        String(a.certification_status).toUpperCase() === 'NO_APROBADA'
+    );
+    const existingProgrammedApp = existingApartadosForMoto.find(
+      (a) =>
+        String(a.certification_appointment_status).toUpperCase() === 'PROGRAMADA' &&
+        String(a.status).toUpperCase() === 'REALIZADO' &&
+        a.certification_appointment_at
     );
 
-    const mCertStatus = String(moto.certified_status || moto.certification_id ? 'APROBADA' : '').toUpperCase();
-    const isMotoCertified = existingCompletedCert || mCertStatus === 'APROBADA' || (typeof moto.score === 'number' && moto.score >= 80);
+    const mCertStatus = String(moto.certified_status || (moto as any).certification_status || moto.certification_id ? 'APROBADA' : '').toUpperCase();
+    const isApproved = existingApprovedCert || mCertStatus === 'APROBADA' || mCertStatus === 'CERTIFICADA' || (typeof moto.score === 'number' && moto.score >= 80);
+    const isRejected = existingRejectedCert || mCertStatus === 'RECHAZADA' || mCertStatus === 'NO_APROBADA';
 
     const id = `apartado_${Math.random().toString(36).slice(2, 10)}`;
     const apartado: any = {
@@ -1007,28 +1015,36 @@ api.get('/auth/me', authenticateToken, (req, res) => {
       buyer_id: user.id,
       seller_id: moto.owner_id,
       status: 'REALIZADO',
-      certification_appointment_at: isMotoCertified
-        ? (existingCompletedCert?.certification_appointment_at || moto.certified_date || null)
+      certification_appointment_at: isApproved
+        ? (existingApprovedCert?.certification_appointment_at || moto.certified_date || null)
+        : isRejected
+        ? (existingRejectedCert?.certification_appointment_at || null)
         : existingProgrammedApp
         ? existingProgrammedApp.certification_appointment_at
         : null,
-      certification_appointment_status: isMotoCertified
+      certification_appointment_status: (isApproved || isRejected)
         ? 'COMPLETADA'
         : existingProgrammedApp
         ? 'PROGRAMADA'
         : 'Pendiente',
-      certification_workshop: isMotoCertified
-        ? (existingCompletedCert?.certification_workshop || moto.certifier || 'Taller Mecánico Certificado Motoluv')
+      certification_workshop: isApproved
+        ? (existingApprovedCert?.certification_workshop || moto.certifier || 'Taller Mecánico Certificado Motoluv')
+        : isRejected
+        ? (existingRejectedCert?.certification_workshop || 'Taller Mecánico Certificado Motoluv')
         : existingProgrammedApp
         ? existingProgrammedApp.certification_workshop
         : null,
-      certification_workshop_id: isMotoCertified
-        ? (existingCompletedCert?.certification_workshop_id || null)
+      certification_workshop_id: isApproved
+        ? (existingApprovedCert?.certification_workshop_id || null)
+        : isRejected
+        ? (existingRejectedCert?.certification_workshop_id || null)
         : existingProgrammedApp
         ? existingProgrammedApp.certification_workshop_id
         : null,
-      certification_status: isMotoCertified
+      certification_status: isApproved
         ? 'APROBADA'
+        : isRejected
+        ? 'RECHAZADA'
         : (existingProgrammedApp?.certification_status || 'PENDIENTE'),
       created_at: new Date().toISOString(),
       moto: {
@@ -1100,17 +1116,33 @@ api.get('/auth/me', authenticateToken, (req, res) => {
       .map((a) => {
         const moto = db.motos.get(a.moto_id);
         const motoApartados = allApartados.filter((item) => item.moto_id === a.moto_id);
-        const prog = motoApartados.find((item) => String(item.certification_appointment_status).toUpperCase() === 'PROGRAMADA');
-        const comp = motoApartados.find(
-          (item) =>
-            String(item.certification_status).toUpperCase() === 'APROBADA' ||
-            String(item.certification_appointment_status).toUpperCase() === 'COMPLETADA'
+        const approved = motoApartados.find((item) => String(item.certification_status).toUpperCase() === 'APROBADA' || String(item.certification_status).toUpperCase() === 'CERTIFICADA');
+        const rejected = motoApartados.find((item) => String(item.certification_status).toUpperCase() === 'RECHAZADA' || String(item.certification_status).toUpperCase() === 'NO_APROBADA');
+        const validProg = motoApartados.find(
+          (item) => String(item.certification_appointment_status).toUpperCase() === 'PROGRAMADA' && String(item.status).toUpperCase() === 'REALIZADO'
         );
 
-        const appointmentAt = comp?.certification_appointment_at || prog?.certification_appointment_at || a.certification_appointment_at;
-        const appointmentStatus = comp ? 'COMPLETADA' : prog ? 'PROGRAMADA' : (a.certification_appointment_status || 'Pendiente');
-        const workshop = comp?.certification_workshop || prog?.certification_workshop || a.certification_workshop;
-        const certStatus = comp ? 'APROBADA' : (a.certification_status || 'PENDIENTE');
+        let appointmentAt = a.certification_appointment_at;
+        let appointmentStatus = a.certification_appointment_status || 'Pendiente';
+        let workshop = a.certification_workshop;
+        let certStatus = a.certification_status || 'PENDIENTE';
+
+        if (approved) {
+          certStatus = 'APROBADA';
+          appointmentStatus = 'COMPLETADA';
+          appointmentAt = approved.certification_appointment_at || appointmentAt;
+          workshop = approved.certification_workshop || workshop;
+        } else if (rejected) {
+          certStatus = 'RECHAZADA';
+          appointmentStatus = 'COMPLETADA';
+          appointmentAt = rejected.certification_appointment_at || appointmentAt;
+          workshop = rejected.certification_workshop || workshop;
+        } else if (String(a.status).toUpperCase() === 'REALIZADO' && validProg) {
+          appointmentStatus = 'PROGRAMADA';
+          appointmentAt = validProg.certification_appointment_at || appointmentAt;
+          workshop = validProg.certification_workshop || workshop;
+          certStatus = 'PENDIENTE';
+        }
 
         return {
           ...a,
@@ -1141,17 +1173,33 @@ api.get('/auth/me', authenticateToken, (req, res) => {
       .map((a) => {
         const moto = db.motos.get(a.moto_id);
         const motoApartados = allApartados.filter((item) => item.moto_id === a.moto_id);
-        const prog = motoApartados.find((item) => String(item.certification_appointment_status).toUpperCase() === 'PROGRAMADA');
-        const comp = motoApartados.find(
-          (item) =>
-            String(item.certification_status).toUpperCase() === 'APROBADA' ||
-            String(item.certification_appointment_status).toUpperCase() === 'COMPLETADA'
+        const approved = motoApartados.find((item) => String(item.certification_status).toUpperCase() === 'APROBADA' || String(item.certification_status).toUpperCase() === 'CERTIFICADA');
+        const rejected = motoApartados.find((item) => String(item.certification_status).toUpperCase() === 'RECHAZADA' || String(item.certification_status).toUpperCase() === 'NO_APROBADA');
+        const validProg = motoApartados.find(
+          (item) => String(item.certification_appointment_status).toUpperCase() === 'PROGRAMADA' && String(item.status).toUpperCase() === 'REALIZADO'
         );
 
-        const appointmentAt = comp?.certification_appointment_at || prog?.certification_appointment_at || a.certification_appointment_at;
-        const appointmentStatus = comp ? 'COMPLETADA' : prog ? 'PROGRAMADA' : (a.certification_appointment_status || 'Pendiente');
-        const workshop = comp?.certification_workshop || prog?.certification_workshop || a.certification_workshop;
-        const certStatus = comp ? 'APROBADA' : (a.certification_status || 'PENDIENTE');
+        let appointmentAt = a.certification_appointment_at;
+        let appointmentStatus = a.certification_appointment_status || 'Pendiente';
+        let workshop = a.certification_workshop;
+        let certStatus = a.certification_status || 'PENDIENTE';
+
+        if (approved) {
+          certStatus = 'APROBADA';
+          appointmentStatus = 'COMPLETADA';
+          appointmentAt = approved.certification_appointment_at || appointmentAt;
+          workshop = approved.certification_workshop || workshop;
+        } else if (rejected) {
+          certStatus = 'RECHAZADA';
+          appointmentStatus = 'COMPLETADA';
+          appointmentAt = rejected.certification_appointment_at || appointmentAt;
+          workshop = rejected.certification_workshop || workshop;
+        } else if (String(a.status).toUpperCase() === 'REALIZADO' && validProg) {
+          appointmentStatus = 'PROGRAMADA';
+          appointmentAt = validProg.certification_appointment_at || appointmentAt;
+          workshop = validProg.certification_workshop || workshop;
+          certStatus = 'PENDIENTE';
+        }
 
         return {
           ...a,
@@ -1187,28 +1235,32 @@ api.get('/auth/me', authenticateToken, (req, res) => {
     // Step 1: Search by moto_id in memory DB
     if (targetMotoId) {
       const motoApartados = Array.from(db.apartados.values()).filter((a) => a.moto_id === targetMotoId);
+      const existingApproved = motoApartados.find(
+        (a) => String(a.certification_status).toUpperCase() === 'APROBADA' || String(a.certification_status).toUpperCase() === 'CERTIFICADA'
+      );
+      const existingRejected = motoApartados.find(
+        (a) => String(a.certification_status).toUpperCase() === 'RECHAZADA' || String(a.certification_status).toUpperCase() === 'NO_APROBADA'
+      );
       const existingProg = motoApartados.find(
         (a) => String(a.certification_appointment_status).toUpperCase() === 'PROGRAMADA' && a.certification_appointment_at
       );
-      const existingComp = motoApartados.find(
-        (a) =>
-          String(a.certification_status).toUpperCase() === 'APROBADA' ||
-          String(a.certification_appointment_status).toUpperCase() === 'COMPLETADA'
-      );
 
-      // Rule 3: If completed + approved, reuse it!
-      if (existingComp) {
+      // Rule 3: If completed + approved or rejected, reuse it!
+      if (existingApproved || existingRejected) {
+        const certResult = existingApproved ? 'APROBADA' : 'RECHAZADA';
+        const source = existingApproved || existingRejected;
         if (targetApartado) {
-          targetApartado.certification_status = 'APROBADA';
+          targetApartado.certification_status = certResult;
           targetApartado.certification_appointment_status = 'COMPLETADA';
         }
         return res.json({
           reused: true,
-          isCertified: true,
-          certification_status: 'APROBADA',
+          isCertified: Boolean(existingApproved),
+          isRejected: Boolean(existingRejected),
+          certification_status: certResult,
           certification_appointment_status: 'COMPLETADA',
-          certification_appointment_at: existingComp.certification_appointment_at,
-          certification_workshop: existingComp.certification_workshop,
+          certification_appointment_at: source?.certification_appointment_at || null,
+          certification_workshop: source?.certification_workshop || null,
         });
       }
 

@@ -725,13 +725,15 @@ const OperationsTimelineViewer = ({
                               <StageIcon size={12} strokeWidth={2.5} />
                             </div>
                           ) : isNa ? (
-                            <div className={`w-7 h-7 rounded-full bg-[#18181d] flex items-center justify-center ${
-                              op.isRejected
-                                ? 'border border-red-500/50 text-red-400'
-                                : 'border border-white/10 text-zinc-500'
-                            }`}>
-                              <span className={`text-[10px] font-bold ${op.isRejected ? 'text-red-400' : 'text-zinc-500'}`}>NA</span>
-                            </div>
+                            op.isRejected ? (
+                              <div className="w-7 h-7 rounded-full bg-red-600 border border-red-500 flex items-center justify-center text-white shadow-md shadow-red-500/25">
+                                <X size={13} strokeWidth={3} />
+                              </div>
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-[#18181d] border border-white/10 flex items-center justify-center text-zinc-500">
+                                <span className="text-[10px] font-bold text-zinc-500">NA</span>
+                              </div>
+                            )
                           ) : (
                             <div className="w-7 h-7 rounded-full bg-[#18181d] border border-white/15 flex items-center justify-center text-zinc-500">
                               <StageIcon size={12} strokeWidth={2} />
@@ -760,7 +762,7 @@ const OperationsTimelineViewer = ({
                                 isRejectedStep
                                   ? 'text-red-400 font-semibold'
                                   : op.isRejected
-                                  ? 'text-red-400 font-semibold'
+                                  ? 'text-white font-semibold'
                                   : isCompleted
                                   ? 'text-zinc-400'
                                   : isInProgress

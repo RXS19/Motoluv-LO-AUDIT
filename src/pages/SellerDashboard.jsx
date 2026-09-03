@@ -194,7 +194,7 @@ const SellerDashboard = () => {
       if (a.status !== 'REALIZADO') return false;
       const st = String(a.certification_appointment_status || '').toUpperCase();
       const cert = String(a.certification_status || '').toUpperCase();
-      if (st === 'PROGRAMADA' || st === 'COMPLETADA' || cert === 'APROBADA' || cert === 'CERTIFICADA') return false;
+      if (st === 'PROGRAMADA' || st === 'COMPLETADA' || cert === 'APROBADA' || cert === 'CERTIFICADA' || cert === 'RECHAZADA' || cert === 'NO_APROBADA') return false;
       return true;
     });
   }, [apartados]);

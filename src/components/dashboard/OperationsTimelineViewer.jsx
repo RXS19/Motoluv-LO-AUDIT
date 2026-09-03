@@ -44,7 +44,15 @@ export const TIMELINE_STAGES = [
 export const resolveOperationTimeline = (item) => {
   if (!item) return null;
 
-  const rawCertStatus = String(item.certification_status || '').toUpperCase();
+  const rawCertStatus = String(
+    item.certification_status ||
+    item.moto?.certification_status ||
+    item.moto?.certified_status ||
+    item.raw?.certification_status ||
+    ''
+  ).toUpperCase();
+  const isRejected = rawCertStatus === 'RECHAZADA' || rawCertStatus === 'NO_APROBADA';
+
   const rawAppStatus = String(item.certification_appointment_status || '').toUpperCase();
   const rawItemStatus = String(item.status || '').toUpperCase();
   const rawContractStatus = String(item.contract_status || '').toUpperCase();
@@ -59,58 +67,69 @@ export const resolveOperationTimeline = (item) => {
 
   // 6. Stage: Entrega
   const isDeliveryCompleted =
-    rawDeliveryStatus === 'COMPLETADO' ||
-    rawDeliveryStatus === 'ENTREGADO' ||
-    rawDeliveryStatus === 'DELIVERED' ||
-    rawItemStatus === 'ENTREGADO' ||
-    Boolean(item.delivered_at) ||
-    (rawItemStatus === 'COMPLETADO' && (rawTransferStatus === 'COMPLETADO' || Boolean(item.transferred_at)));
+    !isRejected && (
+      rawDeliveryStatus === 'COMPLETADO' ||
+      rawDeliveryStatus === 'ENTREGADO' ||
+      rawDeliveryStatus === 'DELIVERED' ||
+      rawItemStatus === 'ENTREGADO' ||
+      Boolean(item.delivered_at) ||
+      (rawItemStatus === 'COMPLETADO' && (rawTransferStatus === 'COMPLETADO' || Boolean(item.transferred_at)))
+    );
 
   // 5. Stage: Transferencia
   const isTransferCompleted =
-    isDeliveryCompleted ||
-    rawTransferStatus === 'COMPLETADO' ||
-    rawTransferStatus === 'TRANSFERIDO' ||
-    Boolean(item.transferred_at) ||
-    Boolean(item.transfer_completed_at);
+    !isRejected && (
+      isDeliveryCompleted ||
+      rawTransferStatus === 'COMPLETADO' ||
+      rawTransferStatus === 'TRANSFERIDO' ||
+      Boolean(item.transferred_at) ||
+      Boolean(item.transfer_completed_at)
+    );
 
   // 4. Stage: Autorización
   const isAuthCompleted =
-    isTransferCompleted ||
-    isDeliveryCompleted ||
-    rawAuthStatus === 'COMPLETADO' ||
-    rawAuthStatus === 'AUTORIZADO' ||
-    rawAuthStatus === 'APPROVED' ||
-    Boolean(item.authorized_at) ||
-    Boolean(item.authorization_completed_at);
+    !isRejected && (
+      isTransferCompleted ||
+      isDeliveryCompleted ||
+      rawAuthStatus === 'COMPLETADO' ||
+      rawAuthStatus === 'AUTORIZADO' ||
+      rawAuthStatus === 'APPROVED' ||
+      Boolean(item.authorized_at) ||
+      Boolean(item.authorization_completed_at)
+    );
 
   // 3. Stage: Pago (Vehicle full payment in escrow / custody - DO NOT use item.paid_at of $600 apartado!)
   const isPagoCompleted =
-    isAuthCompleted ||
-    isTransferCompleted ||
-    isDeliveryCompleted ||
-    rawPaymentStatus === 'COMPLETADO' ||
-    rawPaymentStatus === 'PAGADO' ||
-    rawPaymentStatus === 'EN_CUSTODIA' ||
-    Boolean(item.vehicle_paid_at) ||
-    Boolean(item.full_payment_at) ||
-    Boolean(item.paid_full_at) ||
-    Boolean(item.custody_paid_at);
+    !isRejected && (
+      isAuthCompleted ||
+      isTransferCompleted ||
+      isDeliveryCompleted ||
+      rawPaymentStatus === 'COMPLETADO' ||
+      rawPaymentStatus === 'PAGADO' ||
+      rawPaymentStatus === 'EN_CUSTODIA' ||
+      Boolean(item.vehicle_paid_at) ||
+      Boolean(item.full_payment_at) ||
+      Boolean(item.paid_full_at) ||
+      Boolean(item.custody_paid_at)
+    );
 
   // 2. Stage: Contrato
   const isContractCompleted =
-    isPagoCompleted ||
-    isAuthCompleted ||
-    isTransferCompleted ||
-    isDeliveryCompleted ||
-    rawContractStatus === 'COMPLETADO' ||
-    rawContractStatus === 'FIRMADO' ||
-    rawContractStatus === 'SIGNED' ||
-    Boolean(item.contract_signed_at) ||
-    Boolean(item.contract_completed_at);
+    !isRejected && (
+      isPagoCompleted ||
+      isAuthCompleted ||
+      isTransferCompleted ||
+      isDeliveryCompleted ||
+      rawContractStatus === 'COMPLETADO' ||
+      rawContractStatus === 'FIRMADO' ||
+      rawContractStatus === 'SIGNED' ||
+      Boolean(item.contract_signed_at) ||
+      Boolean(item.contract_completed_at)
+    );
 
-  // In-progress flags for each stage
+  // In-progress flags for each stage (when rejected, no downstream step is active or in progress)
   const isContractInProgress =
+    !isRejected &&
     !isContractCompleted &&
     (rawContractStatus === 'EN_PROCESO' ||
       rawContractStatus === 'GENERADO' ||
@@ -119,64 +138,77 @@ export const resolveOperationTimeline = (item) => {
       rawCertStatus === 'APROBADA');
 
   const isPagoInProgress =
+    !isRejected &&
     !isPagoCompleted &&
     (rawPaymentStatus === 'EN_PROCESO' ||
       rawPaymentStatus === 'PENDIENTE_PAGO' ||
       (isContractCompleted && !isPagoCompleted));
 
   const isAuthInProgress =
+    !isRejected &&
     !isAuthCompleted &&
     (rawAuthStatus === 'EN_PROCESO' ||
       rawAuthStatus === 'EN_REVISION' ||
       (isPagoCompleted && !isAuthCompleted));
 
   const isTransferInProgress =
+    !isRejected &&
     !isTransferCompleted &&
     (rawTransferStatus === 'EN_PROCESO' ||
       (isAuthCompleted && !isTransferCompleted));
 
   const isDeliveryInProgress =
+    !isRejected &&
     !isDeliveryCompleted &&
     (rawDeliveryStatus === 'EN_PROCESO' ||
       (isTransferCompleted && !isDeliveryCompleted));
 
   // Build the 6 step status objects (strictly NO dates or hours)
+  // When certification_status = 'RECHAZADA':
+  // Step 1: "MOTOCICLETA RECHAZADA" (status: rejected)
+  // Steps 2-6 (Contrato, Pago, Autorización, Transferencia, Entrega): "NA" (status: na, not pending active)
   const steps = [
     {
       id: 'apartado',
-      label: 'Apartado',
-      status: 'completed',
-      substatus: rawItemStatus === 'CANCELADO' ? 'Cancelado' : rawItemStatus === 'EXPIRADO' ? 'Expirado' : 'Confirmado',
+      label: isRejected ? 'MOTOCICLETA RECHAZADA' : 'Apartado',
+      status: isRejected ? 'rejected' : 'completed',
+      substatus: isRejected
+        ? 'Rechazada'
+        : rawItemStatus === 'CANCELADO'
+        ? 'Cancelado'
+        : rawItemStatus === 'EXPIRADO'
+        ? 'Expirado'
+        : 'Confirmado',
     },
     {
       id: 'contrato',
       label: 'Contrato',
-      status: isContractCompleted ? 'completed' : isContractInProgress ? 'in_progress' : 'pending',
-      substatus: isContractCompleted ? 'Firmado' : isContractInProgress ? 'En proceso' : 'Pendiente',
+      status: isRejected ? 'na' : (isContractCompleted ? 'completed' : isContractInProgress ? 'in_progress' : 'pending'),
+      substatus: isRejected ? 'NA' : (isContractCompleted ? 'Firmado' : isContractInProgress ? 'En proceso' : 'Pendiente'),
     },
     {
       id: 'pago',
       label: 'Pago',
-      status: isPagoCompleted ? 'completed' : isPagoInProgress ? 'in_progress' : 'pending',
-      substatus: isPagoCompleted ? 'En custodia' : isPagoInProgress ? 'En proceso' : 'Pendiente',
+      status: isRejected ? 'na' : (isPagoCompleted ? 'completed' : isPagoInProgress ? 'in_progress' : 'pending'),
+      substatus: isRejected ? 'NA' : (isPagoCompleted ? 'En custodia' : isPagoInProgress ? 'En proceso' : 'Pendiente'),
     },
     {
       id: 'autorizacion',
       label: 'Autorización',
-      status: isAuthCompleted ? 'completed' : isAuthInProgress ? 'in_progress' : 'pending',
-      substatus: isAuthCompleted ? 'Autorizado' : isAuthInProgress ? 'En revisión' : 'Pendiente',
+      status: isRejected ? 'na' : (isAuthCompleted ? 'completed' : isAuthInProgress ? 'in_progress' : 'pending'),
+      substatus: isRejected ? 'NA' : (isAuthCompleted ? 'Autorizado' : isAuthInProgress ? 'En revisión' : 'Pendiente'),
     },
     {
       id: 'transferencia',
       label: 'Transferencia',
-      status: isTransferCompleted ? 'completed' : isTransferInProgress ? 'in_progress' : 'pending',
-      substatus: isTransferCompleted ? 'Transferido' : isTransferInProgress ? 'En proceso' : 'Pendiente',
+      status: isRejected ? 'na' : (isTransferCompleted ? 'completed' : isTransferInProgress ? 'in_progress' : 'pending'),
+      substatus: isRejected ? 'NA' : (isTransferCompleted ? 'Transferido' : isTransferInProgress ? 'En proceso' : 'Pendiente'),
     },
     {
       id: 'entrega',
       label: 'Entrega',
-      status: isDeliveryCompleted ? 'completed' : isDeliveryInProgress ? 'in_progress' : 'pending',
-      substatus: isDeliveryCompleted ? 'Entregada' : isDeliveryInProgress ? 'En proceso' : 'Pendiente',
+      status: isRejected ? 'na' : (isDeliveryCompleted ? 'completed' : isDeliveryInProgress ? 'in_progress' : 'pending'),
+      substatus: isRejected ? 'NA' : (isDeliveryCompleted ? 'Entregada' : isDeliveryInProgress ? 'En proceso' : 'Pendiente'),
     },
   ];
 
@@ -185,7 +217,11 @@ export const resolveOperationTimeline = (item) => {
   let badgeLabel = 'Apartado';
   let badgeColor = 'amber';
 
-  if (isDeliveryCompleted) {
+  if (isRejected) {
+    activeStageKey = 'apartado';
+    badgeLabel = 'MOTOCICLETA RECHAZADA';
+    badgeColor = 'red';
+  } else if (isDeliveryCompleted) {
     activeStageKey = 'entrega';
     badgeLabel = 'Entregada';
     badgeColor = 'emerald';
@@ -285,6 +321,7 @@ export const resolveOperationTimeline = (item) => {
     activeStageKey,
     badgeLabel,
     badgeColor,
+    isRejected,
   };
 };
 
@@ -448,7 +485,7 @@ const OperationsTimelineViewer = ({
             const isNodCancelled = rawNodStatus === 'CANCELADO' || rawNodStatus === 'CANCELADA';
             const isNodExpired = rawNodStatus === 'EXPIRADO' || rawNodStatus === 'EXPIRADA';
             const isAppNoShow = rawAppStatus === 'NO_PRESENTADO';
-            const isDimmed = isAppCancelled || isAppExpired || isNodCancelled || isNodExpired;
+            const isDimmed = isAppCancelled || isAppExpired || isNodCancelled || isNodExpired || op.isRejected;
 
             return (
               <div
@@ -483,9 +520,12 @@ const OperationsTimelineViewer = ({
                     <div className="text-xs font-mono text-zinc-400">
                       NOD: <span className="text-zinc-200 font-semibold">{op.nod}</span>
                     </div>
-                    <div className="text-sm sm:text-base font-bold text-white">
-                      ${op.price.toLocaleString('es-MX')} MXN
-                    </div>
+                    {/* Financial state / price - hidden for buyer when rejected */}
+                    {(!op.isRejected || isSeller) && (
+                      <div className="text-sm sm:text-base font-bold text-white">
+                        ${op.price.toLocaleString('es-MX')} MXN
+                      </div>
+                    )}
 
                     {/* Counterparty identification depending on role */}
                     {isSeller ? (
@@ -504,212 +544,265 @@ const OperationsTimelineViewer = ({
                         </div>
                       </div>
                     ) : (
-                      /* Comprador NEVER sees seller name/avatar, only verification badge */
-                      <div className="flex items-center gap-1.5 pt-1">
-                        <ShieldCheck
-                          size={14}
-                          className={op.sellerIsVerified ? 'text-emerald-400' : 'text-zinc-500'}
-                        />
-                        <span
-                          className={`text-xs font-semibold ${
-                            op.sellerIsVerified ? 'text-emerald-400' : 'text-zinc-400'
-                          }`}
-                        >
-                          {op.sellerIsVerified ? 'Vendedor verificado' : 'Vendedor no verificado'}
-                        </span>
-                      </div>
+                      /* Comprador NEVER sees seller name/avatar, and if rejected, NO seller verification info at all */
+                      !op.isRejected && (
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <ShieldCheck
+                            size={14}
+                            className={op.sellerIsVerified ? 'text-emerald-400' : 'text-zinc-500'}
+                          />
+                          <span
+                            className={`text-xs font-semibold ${
+                              op.sellerIsVerified ? 'text-emerald-400' : 'text-zinc-400'
+                            }`}
+                          >
+                            {op.sellerIsVerified ? 'Vendedor verificado' : 'Vendedor no verificado'}
+                          </span>
+                        </div>
+                      )
                     )}
                   </div>
                 </div>
 
-                {/* 2. CENTER COLUMN: 5-Stage Timeline (STRICTLY NO DATES OR HOURS) */}
-                <div className="flex-1 w-full py-2 px-1 sm:px-4">
-                  <div className="relative flex items-center justify-between">
-                    {/* Connecting background track lines */}
-                    <div className="absolute top-3.5 left-6 right-6 h-[2px] -translate-y-1/2 flex">
-                      {op.steps.slice(0, -1).map((st, idx) => {
-                        const isLineGreen = st.status === 'completed';
-                        return (
-                          <div
-                            key={idx}
-                            className={`flex-1 h-full transition-colors ${
-                              isLineGreen ? 'bg-emerald-500' : 'bg-white/10'
-                            }`}
-                          />
-                        );
-                      })}
-                    </div>
-
-                    {/* Step Nodes */}
-                    {op.steps.map((st, index) => {
-                      const isCompleted = st.status === 'completed';
-                      const isInProgress = st.status === 'in_progress';
-
-                      const StageIcon = TIMELINE_STAGES[index]?.icon || Check;
-
-                      return (
-                        <div
-                          key={st.id}
-                          className="relative z-10 flex flex-col items-center text-center flex-1"
-                        >
-                          {/* Step Circle */}
-                          {isCompleted ? (
-                            <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
-                              <Check size={14} strokeWidth={3} />
-                            </div>
-                          ) : isInProgress ? (
-                            <div className="w-7 h-7 rounded-full bg-blue-600 border border-blue-400 flex items-center justify-center text-white shadow-md shadow-blue-500/30 ring-4 ring-blue-500/15">
-                              <StageIcon size={12} strokeWidth={2.5} />
-                            </div>
-                          ) : (
-                            <div className="w-7 h-7 rounded-full bg-[#18181d] border border-white/15 flex items-center justify-center text-zinc-500">
-                              <StageIcon size={12} strokeWidth={2} />
-                            </div>
-                          )}
-
-                          {/* Step Label & Substatus (No Dates) */}
-                          <div className="mt-2 space-y-0.5 min-h-[32px]">
-                            <span
-                              className={`text-xs block font-semibold leading-tight ${
-                                isCompleted || isInProgress ? 'text-white' : 'text-zinc-400'
-                              }`}
-                            >
-                              {st.label}
-                            </span>
-                            <span
-                              className={`text-[10px] block font-medium leading-tight ${
-                                isCompleted
-                                  ? 'text-zinc-400'
-                                  : isInProgress
-                                  ? 'text-blue-400 font-semibold'
-                                  : 'text-zinc-500'
-                              }`}
-                            >
-                              {st.substatus}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 3. RIGHT COLUMN: Actions, Inspection and Status (NO DATES OR HOURS) */}
-                <div className="flex flex-row xl:flex-col items-center xl:items-end justify-between xl:justify-center gap-3 pt-3 xl:pt-0 border-t xl:border-t-0 border-white/5 min-w-[190px]">
-                  {/* Status Badge */}
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`px-3 py-1 text-xs font-semibold rounded-full border ${
-                        op.badgeColor === 'emerald'
-                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                          : op.badgeColor === 'blue'
-                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                      }`}
-                    >
-                      {op.badgeLabel}
+                {/* COMPRADOR with certification RECHAZADA:
+                    Mostrar únicamente la etiqueta: "Motocicleta Rechazada".
+                    No mostrar detalles internos del flujo operativo del rechazo.
+                    No mostrar información de vendedor, motivo interno ni estados financieros. */}
+                {!isSeller && op.isRejected ? (
+                  <div className="flex items-center justify-start xl:justify-end py-2">
+                    <span className="px-3.5 py-1.5 text-xs font-bold rounded-full border bg-red-500/10 text-red-400 border-red-500/20 inline-flex items-center gap-1.5">
+                      <X size={14} strokeWidth={2.5} />
+                      Motocicleta Rechazada
                     </span>
                   </div>
+                ) : (
+                  <>
+                    {/* 2. CENTER COLUMN: Timeline */}
+                    <div className="flex-1 w-full py-2 px-1 sm:px-4">
+                      <div className="relative flex items-center justify-between">
+                        {/* Connecting background track lines - Red if rejected */}
+                        <div className="absolute top-3.5 left-6 right-6 h-[2px] -translate-y-1/2 flex">
+                          {op.steps.slice(0, -1).map((st, idx) => {
+                            const isLineRed = op.isRejected;
+                            const isLineGreen = st.status === 'completed' && !op.isRejected;
+                            return (
+                              <div
+                                key={idx}
+                                className={`flex-1 h-full transition-colors ${
+                                  isLineRed
+                                    ? 'bg-red-500/80'
+                                    : isLineGreen
+                                    ? 'bg-emerald-500'
+                                    : 'bg-white/10'
+                                }`}
+                              />
+                            );
+                          })}
+                        </div>
 
-                  {/* Operational Information & Buttons */}
-                  {isSeller ? (
-                    /* Seller Appointment Management */
-                    <div className="flex flex-col items-end gap-1.5">
-                      {isAppCompleted ? (
-                        <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
-                          <Check size={13} /> Inspección completada
+                        {/* Step Nodes */}
+                        {op.steps.map((st, index) => {
+                          const isRejectedStep = st.status === 'rejected';
+                          const isCompleted = st.status === 'completed' && !isRejectedStep;
+                          const isInProgress = st.status === 'in_progress' && !isRejectedStep;
+                          const isNa = st.status === 'na' || (op.isRejected && index > 0);
+
+                          const StageIcon = TIMELINE_STAGES[index]?.icon || Check;
+
+                          return (
+                            <div
+                              key={st.id}
+                              className="relative z-10 flex flex-col items-center text-center flex-1"
+                            >
+                              {/* Step Circle */}
+                              {isRejectedStep ? (
+                                <div className="w-7 h-7 rounded-full bg-red-600 border border-red-500 flex items-center justify-center text-white shadow-md shadow-red-500/30 ring-4 ring-red-500/20">
+                                  <X size={13} strokeWidth={3} />
+                                </div>
+                              ) : isCompleted ? (
+                                <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
+                                  <Check size={14} strokeWidth={3} />
+                                </div>
+                              ) : isInProgress ? (
+                                <div className="w-7 h-7 rounded-full bg-blue-600 border border-blue-400 flex items-center justify-center text-white shadow-md shadow-blue-500/30 ring-4 ring-blue-500/15">
+                                  <StageIcon size={12} strokeWidth={2.5} />
+                                </div>
+                              ) : isNa ? (
+                                <div className="w-7 h-7 rounded-full bg-[#18181d] border border-white/10 flex items-center justify-center text-zinc-500">
+                                  <span className="text-[10px] font-bold text-zinc-500">NA</span>
+                                </div>
+                              ) : (
+                                <div className="w-7 h-7 rounded-full bg-[#18181d] border border-white/15 flex items-center justify-center text-zinc-500">
+                                  <StageIcon size={12} strokeWidth={2} />
+                                </div>
+                              )}
+
+                              {/* Step Label & Substatus (No Dates) */}
+                              <div className="mt-2 space-y-0.5 min-h-[32px]">
+                                <span
+                                  className={`text-xs block font-semibold leading-tight ${
+                                    isRejectedStep
+                                      ? 'text-red-400 font-bold'
+                                      : isCompleted || isInProgress
+                                      ? 'text-white'
+                                      : isNa
+                                      ? 'text-zinc-500'
+                                      : 'text-zinc-400'
+                                  }`}
+                                >
+                                  {st.label}
+                                </span>
+                                <span
+                                  className={`text-[10px] block font-medium leading-tight ${
+                                    isRejectedStep
+                                      ? 'text-red-400 font-semibold'
+                                      : isCompleted
+                                      ? 'text-zinc-400'
+                                      : isInProgress
+                                      ? 'text-blue-400 font-semibold'
+                                      : isNa
+                                      ? 'text-zinc-500 font-semibold'
+                                      : 'text-zinc-500'
+                                  }`}
+                                >
+                                  {st.substatus}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. RIGHT COLUMN: Actions, Inspection and Status (NO DATES OR HOURS) */}
+                    <div className="flex flex-row xl:flex-col items-center xl:items-end justify-between xl:justify-center gap-3 pt-3 xl:pt-0 border-t xl:border-t-0 border-white/5 min-w-[190px]">
+                      {/* Status Badge */}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-3 py-1 text-xs font-semibold rounded-full border ${
+                            op.isRejected || op.badgeColor === 'red'
+                              ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                              : op.badgeColor === 'emerald'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              : op.badgeColor === 'blue'
+                              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}
+                        >
+                          {op.isRejected ? 'MOTOCICLETA RECHAZADA' : op.badgeLabel}
                         </span>
-                      ) : isAppProgrammed ? (
-                        <div className="text-right">
-                          <span className="text-[11px] text-blue-400 font-semibold block">
-                            Cita programada
-                          </span>
-                          {op.workshop && (
-                            <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
-                              {op.workshop}
+                      </div>
+
+                      {/* Operational Information & Buttons */}
+                      {isSeller ? (
+                        /* Seller Appointment Management */
+                        <div className="flex flex-col items-end gap-1.5">
+                          {op.isRejected ? (
+                            <div className="text-right flex flex-col items-end gap-1">
+                              <span className="text-[11px] text-red-400 font-semibold flex items-center gap-1">
+                                <X size={13} className="text-red-400" /> Peritaje No Favorable
+                              </span>
+                              <span className="text-[10px] text-zinc-500 block">
+                                Certificación rechazada
+                              </span>
+                            </div>
+                          ) : isAppCompleted ? (
+                            <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                              <Check size={13} /> Inspección completada
                             </span>
-                          )}
-                          <span className="text-[9px] text-zinc-500 block">
-                            Cita confirmada (no editable)
-                          </span>
-                        </div>
-                      ) : isAppExpired ? (
-                        <div className="text-right flex flex-col items-end gap-1">
-                          <span className="text-[11px] text-red-400 font-semibold block">
-                            CITA EXPIRADA
-                          </span>
-                          {op.workshop && (
-                            <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
-                              {op.workshop}
-                            </span>
-                          )}
-                          {!isNodExpired && !isNodCancelled && (
-                            <button
-                              type="button"
-                              onClick={() => onScheduleAppointment?.(op.raw)}
-                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
-                            >
-                              <CalendarClock size={13} /> Reagendar cita
-                            </button>
-                          )}
-                        </div>
-                      ) : isAppCancelled || isAppNoShow ? (
-                        <div className="text-right flex flex-col items-end gap-1">
-                          <span className="text-[11px] text-red-400 font-semibold block">
-                            {isAppCancelled ? 'CITA CANCELADA' : 'NO PRESENTADO'}
-                          </span>
-                          {!isNodExpired && !isNodCancelled && (
-                            <button
-                              type="button"
-                              onClick={() => onScheduleAppointment?.(op.raw)}
-                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
-                            >
-                              <CalendarClock size={13} /> Reagendar cita
-                            </button>
+                          ) : isAppProgrammed ? (
+                            <div className="text-right">
+                              <span className="text-[11px] text-blue-400 font-semibold block">
+                                Cita programada
+                              </span>
+                              {op.workshop && (
+                                <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
+                                  {op.workshop}
+                                </span>
+                              )}
+                              <span className="text-[9px] text-zinc-500 block">
+                                Cita confirmada (no editable)
+                              </span>
+                            </div>
+                          ) : isAppExpired ? (
+                            <div className="text-right flex flex-col items-end gap-1">
+                              <span className="text-[11px] text-red-400 font-semibold block">
+                                CITA EXPIRADA
+                              </span>
+                              {op.workshop && (
+                                <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
+                                  {op.workshop}
+                                </span>
+                              )}
+                              {!isNodExpired && !isNodCancelled && (
+                                <button
+                                  type="button"
+                                  onClick={() => onScheduleAppointment?.(op.raw)}
+                                  className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                                >
+                                  <CalendarClock size={13} /> Reagendar cita
+                                </button>
+                              )}
+                            </div>
+                          ) : isAppCancelled || isAppNoShow ? (
+                            <div className="text-right flex flex-col items-end gap-1">
+                              <span className="text-[11px] text-red-400 font-semibold block">
+                                {isAppCancelled ? 'CITA CANCELADA' : 'NO PRESENTADO'}
+                              </span>
+                              {!isNodExpired && !isNodCancelled && (
+                                <button
+                                  type="button"
+                                  onClick={() => onScheduleAppointment?.(op.raw)}
+                                  className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                                >
+                                  <CalendarClock size={13} /> Reagendar cita
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-right flex flex-col items-end gap-1">
+                              <span className="text-[10px] text-zinc-400 font-medium">SIN CITA</span>
+                              {!isNodExpired && !isNodCancelled && (
+                                <button
+                                  type="button"
+                                  onClick={() => onScheduleAppointment?.(op.raw)}
+                                  className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                                >
+                                  <CalendarClock size={13} /> Agendar inspección
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       ) : (
-                        <div className="text-right flex flex-col items-end gap-1">
-                          <span className="text-[10px] text-zinc-400 font-medium">SIN CITA</span>
-                          {!isNodExpired && !isNodCancelled && (
-                            <button
-                              type="button"
-                              onClick={() => onScheduleAppointment?.(op.raw)}
-                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
-                            >
-                              <CalendarClock size={13} /> Agendar inspección
-                            </button>
-                          )}
+                        /* Buyer Certification Summary (NO workshop, NO appointment) */
+                        <div className="text-right">
+                          <span className="text-[10px] text-zinc-500 block">Dictamen de Certificación</span>
+                          <span
+                            className={`text-xs font-bold uppercase ${
+                              op.certificationStatus === 'APROBADA'
+                                ? 'text-emerald-400'
+                                : op.certificationStatus === 'RECHAZADA'
+                                ? 'text-red-400'
+                                : 'text-amber-400'
+                            }`}
+                          >
+                            {op.certificationStatus}
+                          </span>
                         </div>
                       )}
-                    </div>
-                  ) : (
-                    /* Buyer Certification Summary (NO workshop, NO appointment) */
-                    <div className="text-right">
-                      <span className="text-[10px] text-zinc-500 block">Dictamen de Certificación</span>
-                      <span
-                        className={`text-xs font-bold uppercase ${
-                          op.certificationStatus === 'APROBADA'
-                            ? 'text-emerald-400'
-                            : op.certificationStatus === 'RECHAZADA'
-                            ? 'text-red-400'
-                            : 'text-amber-400'
-                        }`}
-                      >
-                        {op.certificationStatus}
-                      </span>
-                    </div>
-                  )}
 
-                  {/* Detail Modal Trigger */}
-                  <button
-                    onClick={() => setSelectedOperation(op)}
-                    className="px-3.5 py-1.5 bg-[#17171c] hover:bg-[#22222a] text-zinc-300 hover:text-white border border-white/10 text-xs font-semibold rounded-xl flex items-center gap-1 transition-all cursor-pointer shadow-sm"
-                  >
-                    <span>Ver detalle</span>
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
+                      {/* Detail Modal Trigger */}
+                      <button
+                        onClick={() => setSelectedOperation(op)}
+                        className="px-3.5 py-1.5 bg-[#17171c] hover:bg-[#22222a] text-zinc-300 hover:text-white border border-white/10 text-xs font-semibold rounded-xl flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                      >
+                        <span>Ver detalle</span>
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             );
           })}
@@ -779,9 +872,11 @@ const OperationsTimelineViewer = ({
                   <p className="text-xs font-mono text-zinc-400">
                     NOD de Operación: <span className="text-white font-semibold">{selectedOperation.nod}</span>
                   </p>
-                  <p className="text-sm font-bold text-red-brand mt-0.5">
-                    ${selectedOperation.price.toLocaleString('es-MX')} MXN
-                  </p>
+                  {(!selectedOperation.isRejected || isSeller) && (
+                    <p className="text-sm font-bold text-red-brand mt-0.5">
+                      ${selectedOperation.price.toLocaleString('es-MX')} MXN
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -801,17 +896,23 @@ const OperationsTimelineViewer = ({
                   <div key={st.id} className="space-y-1">
                     <div
                       className={`h-1.5 rounded-full ${
-                        st.status === 'completed'
+                        st.status === 'rejected'
+                          ? 'bg-red-500'
+                          : st.status === 'completed'
                           ? 'bg-emerald-500'
                           : st.status === 'in_progress'
                           ? 'bg-blue-500 animate-pulse'
                           : 'bg-white/10'
                       }`}
                     />
-                    <span className="font-semibold block truncate text-zinc-300">{st.label}</span>
+                    <span className={`font-semibold block truncate ${st.status === 'rejected' ? 'text-red-400 font-bold' : 'text-zinc-300'}`}>
+                      {st.label}
+                    </span>
                     <span
                       className={`text-[10px] block truncate ${
-                        st.status === 'completed'
+                        st.status === 'rejected'
+                          ? 'text-red-400 font-semibold'
+                          : st.status === 'completed'
                           ? 'text-emerald-400'
                           : st.status === 'in_progress'
                           ? 'text-blue-400 font-semibold'
@@ -832,44 +933,48 @@ const OperationsTimelineViewer = ({
                 <span className="text-zinc-200 font-mono font-semibold">{selectedOperation.nod}</span>
               </div>
 
-              {/* Counterparty details */}
-              <div className="flex justify-between py-2 border-b border-white/5">
-                <span className="text-zinc-400">{isSeller ? 'Comprador' : 'Vendedor'}:</span>
-                <span className="text-zinc-200 font-medium">
-                  {isSeller ? (
-                    selectedOperation.buyerName
-                  ) : (
-                    <span className="flex items-center gap-1.5">
-                      <ShieldCheck
-                        size={13}
-                        className={selectedOperation.sellerIsVerified ? 'text-emerald-400' : 'text-zinc-400'}
-                      />
-                      <span className={selectedOperation.sellerIsVerified ? 'text-emerald-400 font-semibold' : 'text-zinc-300'}>
-                        {selectedOperation.sellerIsVerified ? 'Vendedor verificado' : 'Vendedor no verificado'}
+              {/* Counterparty details - hidden for buyer if rejected */}
+              {(!selectedOperation.isRejected || isSeller) && (
+                <div className="flex justify-between py-2 border-b border-white/5">
+                  <span className="text-zinc-400">{isSeller ? 'Comprador' : 'Vendedor'}:</span>
+                  <span className="text-zinc-200 font-medium">
+                    {isSeller ? (
+                      selectedOperation.buyerName
+                    ) : (
+                      <span className="flex items-center gap-1.5">
+                        <ShieldCheck
+                          size={13}
+                          className={selectedOperation.sellerIsVerified ? 'text-emerald-400' : 'text-zinc-400'}
+                        />
+                        <span className={selectedOperation.sellerIsVerified ? 'text-emerald-400 font-semibold' : 'text-zinc-300'}>
+                          {selectedOperation.sellerIsVerified ? 'Vendedor verificado' : 'Vendedor no verificado'}
+                        </span>
                       </span>
-                    </span>
-                  )}
-                </span>
-              </div>
+                    )}
+                  </span>
+                </div>
+              )}
 
               {/* Certification status */}
               <div className="flex justify-between py-2 border-b border-white/5">
                 <span className="text-zinc-400">Dictamen de Certificación:</span>
                 <span
                   className={`font-bold uppercase ${
-                    selectedOperation.certificationStatus === 'APROBADA'
-                      ? 'text-emerald-400'
-                      : selectedOperation.certificationStatus === 'RECHAZADA'
+                    selectedOperation.isRejected
                       ? 'text-red-400'
+                      : selectedOperation.certificationStatus === 'APROBADA'
+                      ? 'text-emerald-400'
                       : 'text-amber-400'
                   }`}
                 >
-                  {selectedOperation.certificationStatus}
+                  {!isSeller && selectedOperation.isRejected
+                    ? 'Motocicleta Rechazada'
+                    : selectedOperation.certificationStatus}
                 </span>
               </div>
 
               {/* Seller-only inspection details (NO dates/hours) */}
-              {isSeller && selectedOperation.workshop && (
+              {isSeller && !selectedOperation.isRejected && selectedOperation.workshop && (
                 <div className="flex justify-between py-2 border-b border-white/5">
                   <span className="text-zinc-400">Taller Oficial Asignado:</span>
                   <span className="text-zinc-200 font-medium">
@@ -883,7 +988,9 @@ const OperationsTimelineViewer = ({
                   <span className="text-zinc-400">Estado de Cita Técnica:</span>
                   <span
                     className={`font-semibold ${
-                      selectedOperation.appointmentStatus === 'COMPLETADA'
+                      selectedOperation.isRejected
+                        ? 'text-red-400'
+                        : selectedOperation.appointmentStatus === 'COMPLETADA'
                         ? 'text-emerald-400'
                         : selectedOperation.appointmentStatus === 'PROGRAMADA'
                         ? 'text-blue-400'
@@ -892,7 +999,9 @@ const OperationsTimelineViewer = ({
                         : 'text-zinc-300'
                     }`}
                   >
-                    {selectedOperation.appointmentStatus === 'COMPLETADA'
+                    {selectedOperation.isRejected
+                      ? 'PERITAJE RECHAZADO'
+                      : selectedOperation.appointmentStatus === 'COMPLETADA'
                       ? 'COMPLETADA'
                       : selectedOperation.appointmentStatus === 'PROGRAMADA'
                       ? 'PROGRAMADA'

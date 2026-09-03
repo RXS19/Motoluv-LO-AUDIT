@@ -138,7 +138,11 @@ const BuyerDashboard = () => {
     }
   };
 
-  const getApartadoBadge = (st) => {
+  const getApartadoBadge = (st, certSt) => {
+    const c = String(certSt || '').toUpperCase();
+    if (c === 'RECHAZADA' || c === 'NO_APROBADA') {
+      return <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-red-500/10 text-red-400 border border-red-500/20">Motocicleta Rechazada</span>;
+    }
     const s = (st || '').toUpperCase();
     if (s === 'EXPIRADO') {
       return <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">Expirado</span>;
@@ -276,13 +280,13 @@ const BuyerDashboard = () => {
                                 {ap.moto_brand} {ap.moto_model} {ap.moto_year || ''}
                               </h3>
                               <p className="text-zinc-400 text-xs mt-0.5">
-                                Certificación: <strong className="text-zinc-200 uppercase">{ap.certification_status || 'PENDIENTE'}</strong>
+                                Certificación: <strong className="text-zinc-200 uppercase">{String(ap.certification_status || '').toUpperCase() === 'RECHAZADA' || String(ap.certification_status || '').toUpperCase() === 'NO_APROBADA' ? 'Motocicleta Rechazada' : (ap.certification_status || 'PENDIENTE')}</strong>
                               </p>
                             </div>
                           </div>
 
                           <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap">
-                            {getApartadoBadge(ap.status)}
+                            {getApartadoBadge(ap.status, ap.certification_status)}
                             <button
                               onClick={() => setSelectedApartado(ap)}
                               className="px-3.5 py-1.5 bg-[#1b1b20] hover:bg-white/10 text-zinc-200 hover:text-white border border-white/10 text-xs font-medium rounded-lg transition-colors"
@@ -641,7 +645,7 @@ const BuyerDashboard = () => {
                         </div>
 
                         <div className="flex items-center gap-3">
-                          {getApartadoBadge(ap.status)}
+                          {getApartadoBadge(ap.status, ap.certification_status)}
                         </div>
                       </div>
 
@@ -650,12 +654,12 @@ const BuyerDashboard = () => {
                           <span className="text-zinc-500 block">Dictamen Certificación</span>
                           {(() => {
                             const raw = String(ap.certification_status || '').toUpperCase();
-                            const buyerSt = (raw === 'APROBADA' || raw === 'CERTIFICADA') ? 'CERTIFICADA' : (raw === 'RECHAZADA' ? 'RECHAZADA' : 'PENDIENTE');
+                            const buyerSt = (raw === 'APROBADA' || raw === 'CERTIFICADA') ? 'CERTIFICADA' : (raw === 'RECHAZADA' || raw === 'NO_APROBADA' ? 'RECHAZADA' : 'PENDIENTE');
                             return (
                               <span className={`font-bold text-sm uppercase ${
                                 buyerSt === 'CERTIFICADA' ? 'text-emerald-400' : buyerSt === 'RECHAZADA' ? 'text-red-400' : 'text-amber-400'
                               }`}>
-                                {buyerSt}
+                                {buyerSt === 'RECHAZADA' ? 'Motocicleta Rechazada' : buyerSt}
                               </span>
                             );
                           })()}

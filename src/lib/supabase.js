@@ -74,11 +74,170 @@ export async function signInWithProvider(provider) {
     provider: providerKey,
     options: {
       redirectTo: `${window.location.origin}/panel`,
+      queryParams: providerKey === 'google' ? {
+        access_type: 'offline',
+        prompt: 'select_account',
+      } : undefined,
+      scopes: providerKey === 'google' ? 'openid profile email' : undefined,
     },
   });
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Extrae de forma segura los metadatos entregados por Google / Supabase Auth
+ * para mapear first_name, last_name y full_name según las reglas de Motoluv.
+ */
+export function extractGoogleUserNames(authUser) {
+  if (!authUser) return null;
+
+  const metadata = authUser.user_metadata || {};
+  const googleIdentity = authUser.identities?.find((id) => id.provider === 'google');
+  const identityData = googleIdentity?.identity_data || {};
+
+  // 1. Obtener apellido desde family_name y metadatos equivalentes
+  const rawFamilyName = 
+    metadata.family_name ??
+    identityData.family_name ??
+    metadata.familyname ??
+    identityData.familyname ??
+    metadata.last_name ??
+    identityData.last_name ??
+    metadata.lastname ??
+    identityData.lastname ??
+    metadata.surname ??
+    identityData.surname ??
+    null;
+
+  const lastName = rawFamilyName != null && String(rawFamilyName).trim().length > 0
+    ? String(rawFamilyName).trim()
+    : null;
+
+  // 2. Obtener nombre desde given_name y metadatos equivalentes
+  const rawGivenName =
+    metadata.given_name ??
+    identityData.given_name ??
+    metadata.givenname ??
+    identityData.givenname ??
+    metadata.first_name ??
+    identityData.first_name ??
+    metadata.firstname ??
+    identityData.firstname ??
+    null;
+
+  const givenName = rawGivenName != null && String(rawGivenName).trim().length > 0
+    ? String(rawGivenName).trim()
+    : null;
+
+  // 3. Obtener nombre completo actual (name o full_name de Google/Auth)
+  const rawFullName =
+    metadata.full_name ??
+    identityData.full_name ??
+    metadata.name ??
+    identityData.name ??
+    null;
+
+  const fullName = rawFullName != null && String(rawFullName).trim().length > 0
+    ? String(rawFullName).trim()
+    : (givenName && lastName ? `${givenName} ${lastName}` : (givenName || 'Usuario'));
+
+  // 4. Si givenName no viene explícito pero fullName sí, extraer el primer nombre
+  const firstName = givenName || (fullName ? fullName.split(' ')[0] : null);
+
+  return {
+    first_name: firstName,
+    last_name: lastName, // Si Google no proporciona apellido: null
+    full_name: fullName,
+  };
+}
+
+/**
+ * Sincroniza los metadatos de Google OAuth hacia public.profiles y public.users
+ * Si Google proporciona apellido, lo guarda en el campo existente.
+ * Si no proporciona apellido, no bloquea el login ni genera error.
+ */
+export async function syncGoogleUserProfile(authUser) {
+  if (!isSupabaseConfigured || !supabase || !authUser?.id) return null;
+
+  const isGoogle = 
+    authUser.app_metadata?.provider === 'google' ||
+    authUser.app_metadata?.providers?.includes('google') ||
+    authUser.identities?.some((id) => id.provider === 'google');
+
+  if (!isGoogle) return null;
+
+  const names = extractGoogleUserNames(authUser);
+  if (!names) return null;
+
+  const { first_name, last_name, full_name } = names;
+  const metadata = authUser.user_metadata || {};
+  const avatarUrl = metadata.avatar_url || metadata.picture || null;
+
+  try {
+    // 1. Consultar registro existente en public.profiles para no pisar datos
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, full_name, avatar_url')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    const profileUpdates = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!existingProfile?.full_name || existingProfile.full_name === 'Usuario Motoluv' || existingProfile.full_name === 'Usuario') {
+      profileUpdates.full_name = full_name;
+    }
+    if (!existingProfile?.first_name && first_name) {
+      profileUpdates.first_name = first_name;
+    }
+    // Si Google proporciona apellido y el perfil aún no tiene apellido guardado
+    if (last_name && !existingProfile?.last_name) {
+      profileUpdates.last_name = last_name;
+    }
+    if (avatarUrl && !existingProfile?.avatar_url) {
+      profileUpdates.avatar_url = avatarUrl;
+    }
+
+    await supabase
+      .from('profiles')
+      .upsert({
+        id: authUser.id,
+        ...profileUpdates,
+      }, { onConflict: 'id' });
+
+    // 2. Sincronización hacia public.users existente
+    try {
+      const userUpdates = {
+        updated_at: new Date().toISOString(),
+      };
+      if (first_name) userUpdates.first_name = first_name;
+      if (last_name) userUpdates.last_name = last_name;
+
+      await supabase
+        .from('users')
+        .update(userUpdates)
+        .eq('id', authUser.id);
+    } catch (usersErr) {
+      console.warn('[Sync Google public.users Notice]', usersErr?.message || usersErr);
+    }
+
+    logAuthDiagnostic('google_profile_synced', {
+      userId: authUser.id,
+      first_name,
+      last_name,
+      full_name,
+    });
+  } catch (err) {
+    // REGLA CRÍTICA: NO bloquear el login bajo ninguna circunstancia
+    console.warn('[Sync Google Profile Warning]', err?.message || err);
+    logAuthDiagnostic('google_profile_sync_exception', {
+      userId: authUser.id,
+      message: err?.message || String(err),
+    });
+  }
 }
 
 /**
@@ -198,11 +357,23 @@ export async function fetchUserProfile(userId, userMetadata = null) {
   const createdAt = profile?.created_at || new Date().toISOString();
   const updatedAt = profile?.updated_at || new Date().toISOString();
 
+  const firstName = profile?.first_name 
+    || meta.given_name 
+    || meta.first_name 
+    || (fullName ? fullName.split(' ')[0] : null);
+
+  const lastName = profile?.last_name 
+    || meta.family_name 
+    || meta.last_name 
+    || null;
+
   const merged = {
     id: userId,
     nid: profile?.nid ?? meta?.nid ?? null,
     full_name: fullName,
     name: fullName, // Compatibilidad total con vistas que usen user.name
+    first_name: firstName,
+    last_name: lastName,
     phone,
     phone_updated_once: phoneUpdatedOnce,
     phone_change_count: phoneChangeCount,
@@ -259,8 +430,19 @@ export async function updateUserProfile(userId, updates) {
   if (resolvedFullName !== undefined) {
     cleanData.full_name = resolvedFullName;
     const nameParts = resolvedFullName ? resolvedFullName.split(' ').filter(Boolean) : [];
-    cleanData.first_name = nameParts[0] || null;
-    cleanData.last_name = nameParts.slice(1).join(' ') || null;
+    cleanData.first_name = updates.first_name !== undefined
+      ? (updates.first_name != null ? String(updates.first_name).trim() || null : null)
+      : (nameParts[0] || null);
+    cleanData.last_name = updates.last_name !== undefined
+      ? (updates.last_name != null ? String(updates.last_name).trim() || null : null)
+      : (nameParts.slice(1).join(' ') || null);
+  } else {
+    if (updates.first_name !== undefined) {
+      cleanData.first_name = updates.first_name != null ? String(updates.first_name).trim() || null : null;
+    }
+    if (updates.last_name !== undefined) {
+      cleanData.last_name = updates.last_name != null ? String(updates.last_name).trim() || null : null;
+    }
   }
 
   if (updates.phone !== undefined) {

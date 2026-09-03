@@ -6,6 +6,7 @@ import {
   formatSupabaseAuthError,
   fetchUserProfile,
   updateUserProfile,
+  syncGoogleUserProfile,
   logAuthDiagnostic,
 } from '../lib/supabase';
 
@@ -81,6 +82,15 @@ export const AuthProvider = ({ children }) => {
 
     if (isSupabaseConfigured && supabase) {
       try {
+        const isGoogle = 
+          authUser.app_metadata?.provider === 'google' ||
+          authUser.app_metadata?.providers?.includes('google') ||
+          authUser.identities?.some((id) => id.provider === 'google');
+
+        if (isGoogle) {
+          await syncGoogleUserProfile(authUser);
+        }
+
         profile = await fetchUserProfile(authUser.id, metadata);
       } catch (err) {
         logAuthDiagnostic('fetchUserProfile_exception', {
@@ -91,6 +101,8 @@ export const AuthProvider = ({ children }) => {
     }
 
     const fullName = profile?.full_name || profile?.name || metadata.full_name || metadata.name || (authUser.email ? authUser.email.split('@')[0] : 'Usuario');
+    const firstName = profile?.first_name || metadata.given_name || metadata.first_name || (fullName ? fullName.split(' ')[0] : null);
+    const lastName = profile?.last_name || metadata.family_name || metadata.last_name || null;
     const role = profile?.role || metadata.role || 'both';
     const city = profile?.city || metadata.city || 'Ciudad de México';
     const phone = profile?.phone || metadata.phone || metadata.phone_number || metadata.phoneNumber || authUser.phone || metadata.custom_claims?.phone || '';
@@ -111,6 +123,8 @@ export const AuthProvider = ({ children }) => {
       email: authUser.email,
       name: fullName,
       full_name: fullName,
+      first_name: firstName,
+      last_name: lastName,
       phone,
       phone_updated_once: phoneUpdatedOnce,
       phone_change_count: phoneChangeCount,
@@ -431,10 +445,20 @@ export const AuthProvider = ({ children }) => {
     const resolvedName = updatedProfile?.full_name 
       || (name !== undefined ? (name != null ? safeTrim(name) : '') : (user?.full_name || user?.name || ''));
 
+    const resolvedFirstName = updatedProfile?.first_name !== undefined
+      ? updatedProfile.first_name
+      : (user?.first_name || (resolvedName ? resolvedName.split(' ')[0] : null));
+
+    const resolvedLastName = updatedProfile?.last_name !== undefined
+      ? updatedProfile.last_name
+      : (user?.last_name || null);
+
     const updated = {
       ...user,
       name: resolvedName,
       full_name: resolvedName,
+      first_name: resolvedFirstName,
+      last_name: resolvedLastName,
       phone: updatedProfile?.phone !== undefined 
         ? updatedProfile.phone 
         : (phone !== undefined ? (phone != null ? safeTrim(phone) : null) : user?.phone),

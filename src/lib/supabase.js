@@ -249,16 +249,16 @@ export async function updateUserProfile(userId, updates) {
 
   // 1. Mapear y sanear campos para public.profiles
   const resolvedFullName = updates.full_name !== undefined
-    ? String(updates.full_name).trim()
+    ? (updates.full_name != null ? String(updates.full_name).trim() : null)
     : updates.name !== undefined
-    ? String(updates.name).trim()
+    ? (updates.name != null ? String(updates.name).trim() : null)
     : undefined;
 
   const cleanData = {};
 
   if (resolvedFullName !== undefined) {
     cleanData.full_name = resolvedFullName;
-    const nameParts = resolvedFullName.split(' ').filter(Boolean);
+    const nameParts = resolvedFullName ? resolvedFullName.split(' ').filter(Boolean) : [];
     cleanData.first_name = nameParts[0] || null;
     cleanData.last_name = nameParts.slice(1).join(' ') || null;
   }

@@ -380,29 +380,40 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Actualizar datos de perfil exclusivamente en public.profiles
-  const updateProfile = async ({ name, phone, city, bank_clabe, bank_name, bank_holder, role }) => {
+  const updateProfile = async ({ name, phone, city, bank_clabe, bank_name, bank_holder, role } = {}) => {
     if (!user) throw new Error('Debes estar autenticado para actualizar tu perfil.');
     const updates = {};
+    const safeTrim = (val) => (val != null ? String(val).trim() : '');
+
     if (name !== undefined) {
-      updates.full_name = name.trim();
+      updates.full_name = name != null ? safeTrim(name) : null;
     }
-    const isPhoneChanging = phone !== undefined && user?.phone && phone.trim() !== user.phone.trim();
+
+    const cleanNewPhone = phone !== undefined && phone != null ? safeTrim(phone) : '';
+    const cleanOldPhone = user?.phone != null ? safeTrim(user.phone) : '';
+    const isPhoneChanging = phone !== undefined && cleanOldPhone !== '' && cleanNewPhone !== cleanOldPhone;
 
     if (phone !== undefined) {
-      updates.phone = phone.trim();
+      updates.phone = phone != null ? safeTrim(phone) : null;
       if (isPhoneChanging) {
         updates.phone_updated_once = true;
         updates.phone_change_count = (user?.phone_change_count || 0) + 1;
       }
     }
-    if (city !== undefined) updates.city = city.trim();
+    if (city !== undefined) {
+      updates.city = city != null ? safeTrim(city) : null;
+    }
     if (role !== undefined) updates.role = role;
     if (bank_clabe !== undefined) {
-      updates.bank_clabe = bank_clabe.trim();
+      updates.bank_clabe = bank_clabe != null ? safeTrim(bank_clabe) : null;
       updates.bank_updated_at = new Date().toISOString();
     }
-    if (bank_name !== undefined) updates.bank_name = bank_name.trim();
-    if (bank_holder !== undefined) updates.bank_holder = bank_holder.trim();
+    if (bank_name !== undefined) {
+      updates.bank_name = bank_name != null ? safeTrim(bank_name) : null;
+    }
+    if (bank_holder !== undefined) {
+      updates.bank_holder = bank_holder != null ? safeTrim(bank_holder) : null;
+    }
 
     let updatedProfile = null;
     try {
@@ -417,27 +428,37 @@ export const AuthProvider = ({ children }) => {
       throw err;
     }
 
-    const resolvedName = updatedProfile?.full_name || (name !== undefined ? name.trim() : (user.full_name || user.name));
+    const resolvedName = updatedProfile?.full_name 
+      || (name !== undefined ? (name != null ? safeTrim(name) : '') : (user?.full_name || user?.name || ''));
+
     const updated = {
       ...user,
       name: resolvedName,
       full_name: resolvedName,
-      phone: updatedProfile?.phone !== undefined ? updatedProfile.phone : (phone !== undefined ? phone.trim() : user.phone),
+      phone: updatedProfile?.phone !== undefined 
+        ? updatedProfile.phone 
+        : (phone !== undefined ? (phone != null ? safeTrim(phone) : null) : user?.phone),
       phone_updated_once: updatedProfile?.phone_updated_once !== undefined 
         ? updatedProfile.phone_updated_once 
-        : (isPhoneChanging ? true : user.phone_updated_once),
+        : (isPhoneChanging ? true : user?.phone_updated_once),
       phone_change_count: updatedProfile?.phone_change_count !== undefined 
         ? updatedProfile.phone_change_count 
-        : (isPhoneChanging ? (user?.phone_change_count || 0) + 1 : user.phone_change_count),
-      city: updatedProfile?.city !== undefined ? updatedProfile.city : (city !== undefined ? city.trim() : user.city),
-      role: updatedProfile?.role !== undefined ? updatedProfile.role : (role !== undefined ? role : user.role),
-      avatar_url: updatedProfile?.avatar_url || user.avatar_url,
+        : (isPhoneChanging ? (user?.phone_change_count || 0) + 1 : user?.phone_change_count || 0),
+      city: updatedProfile?.city !== undefined 
+        ? updatedProfile.city 
+        : (city !== undefined ? (city != null ? safeTrim(city) : null) : user?.city),
+      role: updatedProfile?.role !== undefined ? updatedProfile.role : (role !== undefined ? role : user?.role),
+      avatar_url: updatedProfile?.avatar_url || user?.avatar_url,
       bank_clabe: updatedProfile?.bank_clabe !== undefined 
         ? (updatedProfile.bank_clabe ? String(updatedProfile.bank_clabe) : '') 
-        : (bank_clabe !== undefined ? bank_clabe.trim() : user.bank_clabe),
-      bank_name: updatedProfile?.bank_name !== undefined ? updatedProfile.bank_name : (bank_name !== undefined ? bank_name.trim() : user.bank_name),
-      bank_holder: updatedProfile?.bank_holder !== undefined ? updatedProfile.bank_holder : (bank_holder !== undefined ? bank_holder.trim() : user.bank_holder),
-      bank_updated_at: updatedProfile?.bank_updated_at || updates.bank_updated_at || user.bank_updated_at,
+        : (bank_clabe !== undefined ? (bank_clabe != null ? safeTrim(bank_clabe) : '') : user?.bank_clabe),
+      bank_name: updatedProfile?.bank_name !== undefined 
+        ? updatedProfile.bank_name 
+        : (bank_name !== undefined ? (bank_name != null ? safeTrim(bank_name) : null) : user?.bank_name),
+      bank_holder: updatedProfile?.bank_holder !== undefined 
+        ? updatedProfile.bank_holder 
+        : (bank_holder !== undefined ? (bank_holder != null ? safeTrim(bank_holder) : null) : user?.bank_holder),
+      bank_updated_at: updatedProfile?.bank_updated_at || updates.bank_updated_at || user?.bank_updated_at,
       updated_at: updatedProfile?.updated_at || new Date().toISOString(),
     };
 
@@ -463,20 +484,21 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Actualizar datos bancarios
-  const updateBank = async ({ clabe, bank_name, holder }) => {
+  const updateBank = async ({ clabe, bank_name, holder } = {}) => {
     if (!user) throw new Error('Debes estar autenticado para actualizar tus datos bancarios.');
+    const safeTrim = (val) => (val != null ? String(val).trim() : '');
     const updates = {
-      bank_clabe: clabe ? clabe.trim() : '',
-      bank_name: bank_name ? bank_name.trim() : '',
-      bank_holder: holder ? holder.trim() : (user.full_name || user.name),
+      bank_clabe: safeTrim(clabe),
+      bank_name: safeTrim(bank_name),
+      bank_holder: holder != null ? safeTrim(holder) : (user?.full_name || user?.name || ''),
       bank_updated_at: new Date().toISOString(),
     };
     const updatedProfile = await updateUserProfile(user.id, updates);
     const updated = { 
       ...user, 
-      bank_clabe: updatedProfile?.bank_clabe ? String(updatedProfile.bank_clabe) : (clabe ? clabe.trim() : ''),
-      bank_name: updatedProfile?.bank_name || updates.bank_name,
-      bank_holder: updatedProfile?.bank_holder || updates.bank_holder,
+      bank_clabe: updatedProfile?.bank_clabe ? String(updatedProfile.bank_clabe) : safeTrim(clabe),
+      bank_name: updatedProfile?.bank_name !== undefined ? updatedProfile.bank_name : updates.bank_name,
+      bank_holder: updatedProfile?.bank_holder !== undefined ? updatedProfile.bank_holder : updates.bank_holder,
       bank_updated_at: updatedProfile?.bank_updated_at || updates.bank_updated_at,
       updated_at: updatedProfile?.updated_at || new Date().toISOString(),
     };

@@ -330,7 +330,8 @@ const ProfilePage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!form.name || !form.name.trim()) {
+    const cleanFormName = form.name != null ? String(form.name).trim() : '';
+    if (!cleanFormName) {
       toast({
         title: 'Campo obligatorio',
         description: 'El nombre completo es requerido para tu cuenta.',
@@ -339,9 +340,37 @@ const ProfilePage = () => {
       return;
     }
 
-    if (showSellerClabe && form.bank_clabe) {
-      const cleanClabe = form.bank_clabe.replace(/\D/g, '');
-      if (cleanClabe.length !== 18) {
+    // Comprobación de datos bancarios:
+    // "CLABE para transferencia bancaria" es el ÚNICO grupo que debe validarse conjuntamente.
+    // Si el usuario modifica/guarda datos bancarios, exigir los 3 campos.
+    // Si el usuario NO está modificando datos bancarios, NO enviar ni validar esos campos.
+    const cleanFormBankName = form.bank_name != null ? String(form.bank_name).trim() : '';
+    const cleanFormBankClabe = form.bank_clabe != null ? String(form.bank_clabe).replace(/\D/g, '').trim() : '';
+    const cleanFormBankHolder = form.bank_holder != null ? String(form.bank_holder).trim() : '';
+
+    const currentBankName = profileData?.bank_name != null ? String(profileData.bank_name).trim() : '';
+    const currentBankClabe = profileData?.bank_clabe != null ? String(profileData.bank_clabe).replace(/\D/g, '').trim() : '';
+    const currentBankHolder = profileData?.bank_holder != null ? String(profileData.bank_holder).trim() : '';
+
+    const hasCurrentBankData = Boolean(currentBankClabe || currentBankName);
+    const hasEnteredAnyBankData = Boolean(cleanFormBankName || cleanFormBankClabe || (cleanFormBankHolder && cleanFormBankHolder !== currentBankHolder));
+
+    const isModifyingBank = showSellerClabe && (
+      hasCurrentBankData
+        ? (cleanFormBankName !== currentBankName || cleanFormBankClabe !== currentBankClabe || cleanFormBankHolder !== currentBankHolder)
+        : hasEnteredAnyBankData
+    );
+
+    if (isModifyingBank) {
+      if (!cleanFormBankName) {
+        toast({
+          title: 'Banco requerido',
+          description: 'Debes seleccionar una institución bancaria receptora.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (!cleanFormBankClabe || cleanFormBankClabe.length !== 18) {
         toast({
           title: 'CLABE inválida',
           description: 'La CLABE interbancaria debe contener exactamente 18 dígitos numéricos.',
@@ -349,32 +378,75 @@ const ProfilePage = () => {
         });
         return;
       }
+      if (!cleanFormBankHolder) {
+        toast({
+          title: 'Titular requerido',
+          description: 'El nombre del titular de la cuenta bancaria es obligatorio.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
+    // Detectar campos modificados para enviar únicamente los que cambian
+    const updates = {};
+
+    const currentName = profileData?.full_name != null 
+      ? String(profileData.full_name).trim() 
+      : (profileData?.name != null ? String(profileData.name).trim() : '');
+    if (cleanFormName !== currentName) {
+      updates.name = cleanFormName;
+    }
+
+    const cleanFormCity = form.city != null ? String(form.city).trim() : '';
+    const currentCity = profileData?.city != null ? String(profileData.city).trim() : '';
+    if (cleanFormCity !== currentCity) {
+      updates.city = cleanFormCity;
+    }
+
+    const cleanFormPhone = form.phone != null ? String(form.phone).trim() : '';
+    const currentPhone = profileData?.phone != null ? String(profileData.phone).trim() : '';
+    if (!profileData?.phone_updated_once && cleanFormPhone && cleanFormPhone !== currentPhone) {
+      updates.phone = cleanFormPhone;
+    }
+
+    if (form.role && form.role !== profileData?.role) {
+      updates.role = form.role;
+    }
+
+    if (isModifyingBank) {
+      updates.bank_name = cleanFormBankName;
+      updates.bank_clabe = cleanFormBankClabe;
+      updates.bank_holder = cleanFormBankHolder;
+      updates.bank_updated_at = new Date().toISOString();
+    }
+
+    if (Object.keys(updates).length === 0) {
+      toast({
+        title: 'Perfil actualizado',
+        description: 'No hay cambios pendientes por guardar.',
+      });
+      return;
     }
 
     setIsSaving(true);
     try {
-      const updates = {
-        name: form.name.trim(),
-        city: form.city.trim(),
-        role: form.role,
-      };
-
-      if (!profileData.phone_updated_once && form.phone && form.phone.trim()) {
-        updates.phone = form.phone.trim();
-      }
-
-      if (showSellerClabe) {
-        updates.bank_name = form.bank_name ? form.bank_name.trim() : null;
-        updates.bank_clabe = form.bank_clabe ? form.bank_clabe.replace(/\D/g, '') : null;
-        updates.bank_holder = form.bank_holder ? form.bank_holder.trim() : (form.name ? form.name.trim() : null);
-        updates.bank_updated_at = new Date().toISOString();
-      }
-
       const updatedUser = await updateProfile(updates);
 
       setProfileData((prev) => ({
         ...prev,
         ...updatedUser,
+      }));
+
+      setForm((prev) => ({
+        ...prev,
+        name: updatedUser.full_name || updatedUser.name || prev.name,
+        city: updatedUser.city !== undefined && updatedUser.city !== null ? updatedUser.city : prev.city,
+        phone: updatedUser.phone !== undefined && updatedUser.phone !== null ? updatedUser.phone : prev.phone,
+        bank_name: updatedUser.bank_name !== undefined && updatedUser.bank_name !== null ? updatedUser.bank_name : prev.bank_name,
+        bank_clabe: updatedUser.bank_clabe !== undefined && updatedUser.bank_clabe !== null ? String(updatedUser.bank_clabe) : prev.bank_clabe,
+        bank_holder: updatedUser.bank_holder !== undefined && updatedUser.bank_holder !== null ? updatedUser.bank_holder : prev.bank_holder,
+        role: updatedUser.role || prev.role,
       }));
 
       toast({

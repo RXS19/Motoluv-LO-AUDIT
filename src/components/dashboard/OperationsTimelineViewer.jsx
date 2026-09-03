@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Check,
@@ -20,6 +20,43 @@ import {
 } from 'lucide-react';
 import { resolveSafeImageUrl } from '../../utils/imageFallback';
 import { handleMotoLinkClick } from '../../utils/motoNavigation';
+import { motoApi } from '../../services/api';
+
+/**
+ * Extracts the primary image exclusively from a motorcycle record.
+ * Handles arrays, JSON strings, and postgres format.
+ */
+export const getMotoAssociatedImage = (motoRecord) => {
+  if (!motoRecord) return null;
+  const m = Array.isArray(motoRecord) ? motoRecord[0] : motoRecord;
+  if (!m) return null;
+
+  if (Array.isArray(m.images) && m.images.length > 0) {
+    const first = m.images.find((img) => img && typeof img === 'string' && img.trim());
+    if (first) return first.trim();
+  }
+  if (typeof m.images === 'string' && m.images.trim()) {
+    const trimmed = m.images.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const first = parsed.find((img) => img && typeof img === 'string' && img.trim());
+          if (first) return first.trim();
+        }
+      } catch {}
+    } else if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      const parts = trimmed.slice(1, -1).split(',').map((s) => s.trim().replace(/^"|"$/g, '')).filter(Boolean);
+      if (parts.length > 0) return parts[0];
+    } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/')) {
+      return trimmed;
+    }
+  }
+  if (typeof m.image === 'string' && m.image.trim()) {
+    return m.image.trim();
+  }
+  return null;
+};
 
 /**
  * 6-Stage Definitions for Motoluv Operations Timeline:
@@ -165,12 +202,12 @@ export const resolveOperationTimeline = (item) => {
 
   // Build the 6 step status objects (strictly NO dates or hours)
   // When certification_status = 'RECHAZADA':
-  // Step 1: "MOTOCICLETA RECHAZADA" (status: rejected)
+  // Step 1: "Motocicleta Rechazada" (status: rejected)
   // Steps 2-6 (Contrato, Pago, Autorización, Transferencia, Entrega): "NA" (status: na, not pending active)
   const steps = [
     {
       id: 'apartado',
-      label: isRejected ? 'MOTOCICLETA RECHAZADA' : 'Apartado',
+      label: isRejected ? 'Motocicleta Rechazada' : 'Apartado',
       status: isRejected ? 'rejected' : 'completed',
       substatus: isRejected
         ? 'Rechazada'
@@ -219,7 +256,7 @@ export const resolveOperationTimeline = (item) => {
 
   if (isRejected) {
     activeStageKey = 'apartado';
-    badgeLabel = 'MOTOCICLETA RECHAZADA';
+    badgeLabel = 'Motocicleta Rechazada';
     badgeColor = 'red';
   } else if (isDeliveryCompleted) {
     activeStageKey = 'entrega';
@@ -301,16 +338,26 @@ export const resolveOperationTimeline = (item) => {
     appointmentStatusDisplay = rawAppStatus;
   }
 
+  const motoObj = Array.isArray(item.moto) ? item.moto[0] : (item.moto || item.raw?.moto || null);
+  const motoId = item.moto_id || motoObj?.id || item.raw?.moto_id || null;
+
+  // Resolve image strictly from associated motorcycle: NOD -> operación -> moto_id -> motocicleta asociada -> image
+  const directMotoImage = getMotoAssociatedImage(motoObj);
+  const operationMotoImage =
+    directMotoImage ||
+    (typeof item.moto_image === 'string' && item.moto_image.trim() ? item.moto_image.trim() : null) ||
+    (typeof item.raw?.moto_image === 'string' && item.raw.moto_image.trim() ? item.raw.moto_image.trim() : null);
+
   return {
     raw: item,
     id: item.id,
     nod,
-    moto_id: item.moto_id || item.moto?.id,
-    brand: item.moto_brand || item.moto?.brand || 'Motocicleta',
-    model: item.moto_model || item.moto?.model || '',
-    year: item.moto_year || item.moto?.year || '',
-    price: Number(item.moto_price || item.moto?.price || item.amount || 0),
-    image: item.moto_image || item.moto?.images?.[0] || item.moto?.image,
+    moto_id: motoId,
+    brand: item.moto_brand || motoObj?.brand || 'Motocicleta',
+    model: item.moto_model || motoObj?.model || '',
+    year: item.moto_year || motoObj?.year || '',
+    price: Number(item.moto_price || motoObj?.price || item.amount || 0),
+    image: operationMotoImage || null,
     buyerName: item.buyer_name || item.buyer_email || 'Comprador Motoluv',
     buyerInitials: getInitials(item.buyer_name || item.buyer_email || 'Comprador'),
     sellerIsVerified,
@@ -336,6 +383,54 @@ const OperationsTimelineViewer = ({
   const [selectedOperation, setSelectedOperation] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  // Map of moto_id -> image resolved strictly from the associated motorcycle
+  const [associatedMotoImages, setAssociatedMotoImages] = useState({});
+
+  useEffect(() => {
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    let isMounted = true;
+
+    // Follow the mandatory flow: NOD -> operación -> moto_id -> motocicleta asociada -> image/images de ESA motocicleta
+    items.forEach(async (item) => {
+      const motoId = item?.moto_id || (Array.isArray(item?.moto) ? item.moto[0]?.id : item?.moto?.id) || item?.raw?.moto_id;
+      if (!motoId) return;
+
+      const motoKey = String(motoId);
+
+      // 1. If motorcycle object already has the image populated directly
+      const motoObj = Array.isArray(item?.moto) ? item.moto[0] : (item?.moto || item?.raw?.moto || null);
+      const directImg = getMotoAssociatedImage(motoObj) || (typeof item?.moto_image === 'string' && item.moto_image.trim() ? item.moto_image.trim() : null);
+
+      if (directImg) {
+        if (!associatedMotoImages[motoKey]) {
+          setAssociatedMotoImages((prev) => (prev[motoKey] ? prev : { ...prev, [motoKey]: directImg }));
+        }
+        return;
+      }
+
+      // 2. Fetch the exact motorcycle associated with moto_id using the project's source of truth (motoApi.get)
+      try {
+        const moto = await motoApi.get(motoKey);
+        if (isMounted && moto) {
+          const fetchedImg = getMotoAssociatedImage(moto);
+          if (fetchedImg) {
+            setAssociatedMotoImages((prev) => ({
+              ...prev,
+              [motoKey]: fetchedImg,
+            }));
+          }
+        }
+      } catch (err) {
+        console.warn(`[OperationsTimelineViewer] Error fetching moto for ID ${motoKey}:`, err);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [items]);
 
   const isSeller = mode === 'vendedor';
 
@@ -499,17 +594,32 @@ const OperationsTimelineViewer = ({
                 {/* 1. LEFT COLUMN: Vehicle Thumbnail, Title, NOD, Price & Counterparty Info */}
                 <div className="flex items-center gap-4 min-w-[280px] sm:min-w-[320px]">
                   {/* Motorcycle Image */}
-                  <div className="w-24 h-20 sm:w-28 sm:h-22 rounded-xl bg-black/50 border border-white/10 overflow-hidden flex-shrink-0 relative">
-                    <img
-                      src={resolveSafeImageUrl(op.image, 'moto')}
-                      alt={op.model || 'Motocicleta'}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.onerror = null;
-                        e.target.src =
-                          'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?auto=format&fit=crop&w=600&q=80';
+                  <div className="w-24 h-20 sm:w-28 sm:h-22 rounded-xl bg-black/50 border border-white/10 overflow-hidden flex-shrink-0 relative flex items-center justify-center">
+                    {(() => {
+                      const motoKey = op.moto_id ? String(op.moto_id) : null;
+                      const resolvedImg = (motoKey && associatedMotoImages[motoKey]) || op.image;
+                      return resolvedImg ? (
+                        <img
+                          src={resolveSafeImageUrl(resolvedImg, 'moto')}
+                          alt={op.model || 'Motocicleta'}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.style.display = 'none';
+                            const placeholder = e.target.parentElement?.querySelector('.fallback-placeholder');
+                            if (placeholder) placeholder.style.display = 'flex';
+                          }}
+                        />
+                      ) : null;
+                    })()}
+                    <div
+                      className="fallback-placeholder w-full h-full items-center justify-center text-zinc-600 bg-zinc-900/50"
+                      style={{
+                        display: (op.moto_id && associatedMotoImages[String(op.moto_id)]) || op.image ? 'none' : 'flex',
                       }}
-                    />
+                    >
+                      <Bike size={24} className="opacity-40" />
+                    </div>
                   </div>
 
                   {/* Vehicle Details */}
@@ -564,245 +674,238 @@ const OperationsTimelineViewer = ({
                   </div>
                 </div>
 
-                {/* COMPRADOR with certification RECHAZADA:
-                    Mostrar únicamente la etiqueta: "Motocicleta Rechazada".
-                    No mostrar detalles internos del flujo operativo del rechazo.
-                    No mostrar información de vendedor, motivo interno ni estados financieros. */}
-                {!isSeller && op.isRejected ? (
-                  <div className="flex items-center justify-start xl:justify-end py-2">
-                    <span className="px-3.5 py-1.5 text-xs font-bold rounded-full border bg-red-500/10 text-red-400 border-red-500/20 inline-flex items-center gap-1.5">
-                      <X size={14} strokeWidth={2.5} />
-                      Motocicleta Rechazada
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    {/* 2. CENTER COLUMN: Timeline */}
-                    <div className="flex-1 w-full py-2 px-1 sm:px-4">
-                      <div className="relative flex items-center justify-between">
-                        {/* Connecting background track lines - Red if rejected */}
-                        <div className="absolute top-3.5 left-6 right-6 h-[2px] -translate-y-1/2 flex">
-                          {op.steps.slice(0, -1).map((st, idx) => {
-                            const isLineRed = op.isRejected;
-                            const isLineGreen = st.status === 'completed' && !op.isRejected;
-                            return (
-                              <div
-                                key={idx}
-                                className={`flex-1 h-full transition-colors ${
-                                  isLineRed
-                                    ? 'bg-red-500/80'
-                                    : isLineGreen
-                                    ? 'bg-emerald-500'
-                                    : 'bg-white/10'
-                                }`}
-                              />
-                            );
-                          })}
-                        </div>
-
-                        {/* Step Nodes */}
-                        {op.steps.map((st, index) => {
-                          const isRejectedStep = st.status === 'rejected';
-                          const isCompleted = st.status === 'completed' && !isRejectedStep;
-                          const isInProgress = st.status === 'in_progress' && !isRejectedStep;
-                          const isNa = st.status === 'na' || (op.isRejected && index > 0);
-
-                          const StageIcon = TIMELINE_STAGES[index]?.icon || Check;
-
-                          return (
-                            <div
-                              key={st.id}
-                              className="relative z-10 flex flex-col items-center text-center flex-1"
-                            >
-                              {/* Step Circle */}
-                              {isRejectedStep ? (
-                                <div className="w-7 h-7 rounded-full bg-red-600 border border-red-500 flex items-center justify-center text-white shadow-md shadow-red-500/30 ring-4 ring-red-500/20">
-                                  <X size={13} strokeWidth={3} />
-                                </div>
-                              ) : isCompleted ? (
-                                <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
-                                  <Check size={14} strokeWidth={3} />
-                                </div>
-                              ) : isInProgress ? (
-                                <div className="w-7 h-7 rounded-full bg-blue-600 border border-blue-400 flex items-center justify-center text-white shadow-md shadow-blue-500/30 ring-4 ring-blue-500/15">
-                                  <StageIcon size={12} strokeWidth={2.5} />
-                                </div>
-                              ) : isNa ? (
-                                <div className="w-7 h-7 rounded-full bg-[#18181d] border border-white/10 flex items-center justify-center text-zinc-500">
-                                  <span className="text-[10px] font-bold text-zinc-500">NA</span>
-                                </div>
-                              ) : (
-                                <div className="w-7 h-7 rounded-full bg-[#18181d] border border-white/15 flex items-center justify-center text-zinc-500">
-                                  <StageIcon size={12} strokeWidth={2} />
-                                </div>
-                              )}
-
-                              {/* Step Label & Substatus (No Dates) */}
-                              <div className="mt-2 space-y-0.5 min-h-[32px]">
-                                <span
-                                  className={`text-xs block font-semibold leading-tight ${
-                                    isRejectedStep
-                                      ? 'text-red-400 font-bold'
-                                      : isCompleted || isInProgress
-                                      ? 'text-white'
-                                      : isNa
-                                      ? 'text-zinc-500'
-                                      : 'text-zinc-400'
-                                  }`}
-                                >
-                                  {st.label}
-                                </span>
-                                <span
-                                  className={`text-[10px] block font-medium leading-tight ${
-                                    isRejectedStep
-                                      ? 'text-red-400 font-semibold'
-                                      : isCompleted
-                                      ? 'text-zinc-400'
-                                      : isInProgress
-                                      ? 'text-blue-400 font-semibold'
-                                      : isNa
-                                      ? 'text-zinc-500 font-semibold'
-                                      : 'text-zinc-500'
-                                  }`}
-                                >
-                                  {st.substatus}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                {/* 2. CENTER COLUMN: Timeline */}
+                <div className="flex-1 w-full py-2 px-1 sm:px-4">
+                  <div className="relative flex items-center justify-between">
+                    {/* Connecting background track lines - Red if rejected */}
+                    <div className="absolute top-3.5 left-6 right-6 h-[2px] -translate-y-1/2 flex">
+                      {op.steps.slice(0, -1).map((st, idx) => {
+                        const isLineRed = op.isRejected;
+                        const isLineGreen = st.status === 'completed' && !op.isRejected;
+                        return (
+                          <div
+                            key={idx}
+                            className={`flex-1 h-full transition-colors ${
+                              isLineRed
+                                ? 'bg-red-500'
+                                : isLineGreen
+                                ? 'bg-emerald-500'
+                                : 'bg-white/10'
+                            }`}
+                          />
+                        );
+                      })}
                     </div>
 
-                    {/* 3. RIGHT COLUMN: Actions, Inspection and Status (NO DATES OR HOURS) */}
-                    <div className="flex flex-row xl:flex-col items-center xl:items-end justify-between xl:justify-center gap-3 pt-3 xl:pt-0 border-t xl:border-t-0 border-white/5 min-w-[190px]">
-                      {/* Status Badge */}
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-3 py-1 text-xs font-semibold rounded-full border ${
-                            op.isRejected || op.badgeColor === 'red'
-                              ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                              : op.badgeColor === 'emerald'
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                              : op.badgeColor === 'blue'
-                              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                          }`}
-                        >
-                          {op.isRejected ? 'MOTOCICLETA RECHAZADA' : op.badgeLabel}
-                        </span>
-                      </div>
+                    {/* Step Nodes */}
+                    {op.steps.map((st, index) => {
+                      const isRejectedStep = st.status === 'rejected';
+                      const isCompleted = st.status === 'completed' && !isRejectedStep;
+                      const isInProgress = st.status === 'in_progress' && !isRejectedStep;
+                      const isNa = st.status === 'na' || (op.isRejected && index > 0);
 
-                      {/* Operational Information & Buttons */}
-                      {isSeller ? (
-                        /* Seller Appointment Management */
-                        <div className="flex flex-col items-end gap-1.5">
-                          {op.isRejected ? (
-                            <div className="text-right flex flex-col items-end gap-1">
-                              <span className="text-[11px] text-red-400 font-semibold flex items-center gap-1">
-                                <X size={13} className="text-red-400" /> Peritaje No Favorable
-                              </span>
-                              <span className="text-[10px] text-zinc-500 block">
-                                Certificación rechazada
-                              </span>
+                      const StageIcon = TIMELINE_STAGES[index]?.icon || Check;
+
+                      return (
+                        <div
+                          key={st.id}
+                          className="relative z-10 flex flex-col items-center text-center flex-1"
+                        >
+                          {/* Step Circle */}
+                          {isRejectedStep ? (
+                            <div className="w-7 h-7 rounded-full bg-red-600 border border-red-500 flex items-center justify-center text-white shadow-md shadow-red-500/30 ring-4 ring-red-500/20">
+                              <X size={13} strokeWidth={3} />
                             </div>
-                          ) : isAppCompleted ? (
-                            <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
-                              <Check size={13} /> Inspección completada
-                            </span>
-                          ) : isAppProgrammed ? (
-                            <div className="text-right">
-                              <span className="text-[11px] text-blue-400 font-semibold block">
-                                Cita programada
-                              </span>
-                              {op.workshop && (
-                                <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
-                                  {op.workshop}
-                                </span>
-                              )}
-                              <span className="text-[9px] text-zinc-500 block">
-                                Cita confirmada (no editable)
-                              </span>
+                          ) : isCompleted ? (
+                            <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/25">
+                              <Check size={14} strokeWidth={3} />
                             </div>
-                          ) : isAppExpired ? (
-                            <div className="text-right flex flex-col items-end gap-1">
-                              <span className="text-[11px] text-red-400 font-semibold block">
-                                CITA EXPIRADA
-                              </span>
-                              {op.workshop && (
-                                <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
-                                  {op.workshop}
-                                </span>
-                              )}
-                              {!isNodExpired && !isNodCancelled && (
-                                <button
-                                  type="button"
-                                  onClick={() => onScheduleAppointment?.(op.raw)}
-                                  className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
-                                >
-                                  <CalendarClock size={13} /> Reagendar cita
-                                </button>
-                              )}
+                          ) : isInProgress ? (
+                            <div className="w-7 h-7 rounded-full bg-blue-600 border border-blue-400 flex items-center justify-center text-white shadow-md shadow-blue-500/30 ring-4 ring-blue-500/15">
+                              <StageIcon size={12} strokeWidth={2.5} />
                             </div>
-                          ) : isAppCancelled || isAppNoShow ? (
-                            <div className="text-right flex flex-col items-end gap-1">
-                              <span className="text-[11px] text-red-400 font-semibold block">
-                                {isAppCancelled ? 'CITA CANCELADA' : 'NO PRESENTADO'}
-                              </span>
-                              {!isNodExpired && !isNodCancelled && (
-                                <button
-                                  type="button"
-                                  onClick={() => onScheduleAppointment?.(op.raw)}
-                                  className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
-                                >
-                                  <CalendarClock size={13} /> Reagendar cita
-                                </button>
-                              )}
+                          ) : isNa ? (
+                            <div className={`w-7 h-7 rounded-full bg-[#18181d] flex items-center justify-center ${
+                              op.isRejected
+                                ? 'border border-red-500/50 text-red-400'
+                                : 'border border-white/10 text-zinc-500'
+                            }`}>
+                              <span className={`text-[10px] font-bold ${op.isRejected ? 'text-red-400' : 'text-zinc-500'}`}>NA</span>
                             </div>
                           ) : (
-                            <div className="text-right flex flex-col items-end gap-1">
-                              <span className="text-[10px] text-zinc-400 font-medium">SIN CITA</span>
-                              {!isNodExpired && !isNodCancelled && (
-                                <button
-                                  type="button"
-                                  onClick={() => onScheduleAppointment?.(op.raw)}
-                                  className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
-                                >
-                                  <CalendarClock size={13} /> Agendar inspección
-                                </button>
-                              )}
+                            <div className="w-7 h-7 rounded-full bg-[#18181d] border border-white/15 flex items-center justify-center text-zinc-500">
+                              <StageIcon size={12} strokeWidth={2} />
                             </div>
+                          )}
+
+                          {/* Step Label & Substatus (No Dates) */}
+                          <div className="mt-2 space-y-0.5 min-h-[32px]">
+                            <span
+                              className={`text-xs block font-semibold leading-tight ${
+                                isRejectedStep
+                                  ? 'text-red-400 font-bold'
+                                  : op.isRejected
+                                  ? 'text-zinc-300'
+                                  : isCompleted || isInProgress
+                                  ? 'text-white'
+                                  : isNa
+                                  ? 'text-zinc-500'
+                                  : 'text-zinc-400'
+                              }`}
+                            >
+                              {st.label}
+                            </span>
+                            <span
+                              className={`text-[10px] block font-medium leading-tight ${
+                                isRejectedStep
+                                  ? 'text-red-400 font-semibold'
+                                  : op.isRejected
+                                  ? 'text-red-400 font-semibold'
+                                  : isCompleted
+                                  ? 'text-zinc-400'
+                                  : isInProgress
+                                  ? 'text-blue-400 font-semibold'
+                                  : isNa
+                                  ? 'text-zinc-500 font-semibold'
+                                  : 'text-zinc-500'
+                              }`}
+                            >
+                              {st.substatus}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. RIGHT COLUMN: Actions, Inspection and Status (NO DATES OR HOURS) */}
+                <div className="flex flex-row xl:flex-col items-center xl:items-end justify-between xl:justify-center gap-3 pt-3 xl:pt-0 border-t xl:border-t-0 border-white/5 min-w-[190px]">
+                  {/* Status Badge */}
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-3 py-1 text-xs font-semibold rounded-full border ${
+                        op.isRejected || op.badgeColor === 'red'
+                          ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                          : op.badgeColor === 'emerald'
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                          : op.badgeColor === 'blue'
+                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                      }`}
+                    >
+                      {op.isRejected ? 'Motocicleta Rechazada' : op.badgeLabel}
+                    </span>
+                  </div>
+
+                  {/* Operational Information & Buttons */}
+                  {isSeller ? (
+                    /* Seller Appointment Management */
+                    <div className="flex flex-col items-end gap-1.5">
+                      {op.isRejected ? (
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="text-[11px] text-red-400 font-semibold flex items-center gap-1">
+                            <X size={13} className="text-red-400" /> Peritaje No Favorable
+                          </span>
+                          <span className="text-[10px] text-zinc-500 block">
+                            Certificación rechazada
+                          </span>
+                        </div>
+                      ) : isAppCompleted ? (
+                        <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                          <Check size={13} /> Inspección completada
+                        </span>
+                      ) : isAppProgrammed ? (
+                        <div className="text-right">
+                          <span className="text-[11px] text-blue-400 font-semibold block">
+                            Cita programada
+                          </span>
+                          {op.workshop && (
+                            <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
+                              {op.workshop}
+                            </span>
+                          )}
+                          <span className="text-[9px] text-zinc-500 block">
+                            Cita confirmada (no editable)
+                          </span>
+                        </div>
+                      ) : isAppExpired ? (
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="text-[11px] text-red-400 font-semibold block">
+                            CITA EXPIRADA
+                          </span>
+                          {op.workshop && (
+                            <span className="text-[10px] text-zinc-400 block truncate max-w-[170px]" title={op.workshop}>
+                              {op.workshop}
+                            </span>
+                          )}
+                          {!isNodExpired && !isNodCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => onScheduleAppointment?.(op.raw)}
+                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                            >
+                              <CalendarClock size={13} /> Reagendar cita
+                            </button>
+                          )}
+                        </div>
+                      ) : isAppCancelled || isAppNoShow ? (
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="text-[11px] text-red-400 font-semibold block">
+                            {isAppCancelled ? 'CITA CANCELADA' : 'NO PRESENTADO'}
+                          </span>
+                          {!isNodExpired && !isNodCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => onScheduleAppointment?.(op.raw)}
+                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                            >
+                              <CalendarClock size={13} /> Reagendar cita
+                            </button>
                           )}
                         </div>
                       ) : (
-                        /* Buyer Certification Summary (NO workshop, NO appointment) */
-                        <div className="text-right">
-                          <span className="text-[10px] text-zinc-500 block">Dictamen de Certificación</span>
-                          <span
-                            className={`text-xs font-bold uppercase ${
-                              op.certificationStatus === 'APROBADA'
-                                ? 'text-emerald-400'
-                                : op.certificationStatus === 'RECHAZADA'
-                                ? 'text-red-400'
-                                : 'text-amber-400'
-                            }`}
-                          >
-                            {op.certificationStatus}
-                          </span>
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="text-[10px] text-zinc-400 font-medium">SIN CITA</span>
+                          {!isNodExpired && !isNodCancelled && (
+                            <button
+                              type="button"
+                              onClick={() => onScheduleAppointment?.(op.raw)}
+                              className="px-3 py-1.5 bg-red-brand hover:bg-red-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow cursor-pointer"
+                            >
+                              <CalendarClock size={13} /> Agendar inspección
+                            </button>
+                          )}
                         </div>
                       )}
-
-                      {/* Detail Modal Trigger */}
-                      <button
-                        onClick={() => setSelectedOperation(op)}
-                        className="px-3.5 py-1.5 bg-[#17171c] hover:bg-[#22222a] text-zinc-300 hover:text-white border border-white/10 text-xs font-semibold rounded-xl flex items-center gap-1 transition-all cursor-pointer shadow-sm"
-                      >
-                        <span>Ver detalle</span>
-                        <ChevronRight size={14} />
-                      </button>
                     </div>
-                  </>
-                )}
+                  ) : (
+                    /* Buyer Certification Summary (NO workshop, NO appointment) */
+                    <div className="text-right">
+                      <span className="text-[10px] text-zinc-500 block">Dictamen de Certificación</span>
+                      <span
+                        className={`text-xs font-bold uppercase ${
+                          op.certificationStatus === 'APROBADA'
+                            ? 'text-emerald-400'
+                            : op.certificationStatus === 'RECHAZADA'
+                            ? 'text-red-400'
+                            : 'text-amber-400'
+                        }`}
+                      >
+                        {op.certificationStatus === 'RECHAZADA' ? 'Motocicleta Rechazada' : op.certificationStatus}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Detail Modal Trigger */}
+                  <button
+                    onClick={() => setSelectedOperation(op)}
+                    className="px-3.5 py-1.5 bg-[#17171c] hover:bg-[#22222a] text-zinc-300 hover:text-white border border-white/10 text-xs font-semibold rounded-xl flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                  >
+                    <span>Ver detalle</span>
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -858,12 +961,24 @@ const OperationsTimelineViewer = ({
             {/* Modal Header */}
             <div className="flex items-start justify-between pb-4 border-b border-white/5">
               <div className="flex items-center gap-3.5">
-                <div className="w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                  <img
-                    src={resolveSafeImageUrl(selectedOperation.image, 'moto')}
-                    alt={selectedOperation.model}
-                    className="w-full h-full object-cover"
-                  />
+                <div className="w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 relative flex items-center justify-center">
+                  {(() => {
+                    const modalMotoKey = selectedOperation.moto_id ? String(selectedOperation.moto_id) : null;
+                    const modalImg = (modalMotoKey && associatedMotoImages[modalMotoKey]) || selectedOperation.image;
+                    return modalImg ? (
+                      <img
+                        src={resolveSafeImageUrl(modalImg, 'moto')}
+                        alt={selectedOperation.model}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <Bike size={20} className="text-zinc-600 opacity-40" />
+                    );
+                  })()}
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white">
@@ -896,7 +1011,7 @@ const OperationsTimelineViewer = ({
                   <div key={st.id} className="space-y-1">
                     <div
                       className={`h-1.5 rounded-full ${
-                        st.status === 'rejected'
+                        selectedOperation.isRejected || st.status === 'rejected'
                           ? 'bg-red-500'
                           : st.status === 'completed'
                           ? 'bg-emerald-500'
@@ -905,12 +1020,18 @@ const OperationsTimelineViewer = ({
                           : 'bg-white/10'
                       }`}
                     />
-                    <span className={`font-semibold block truncate ${st.status === 'rejected' ? 'text-red-400 font-bold' : 'text-zinc-300'}`}>
+                    <span className={`font-semibold block truncate ${
+                      selectedOperation.isRejected || st.status === 'rejected'
+                        ? 'text-red-400 font-bold'
+                        : 'text-zinc-300'
+                    }`}>
                       {st.label}
                     </span>
                     <span
                       className={`text-[10px] block truncate ${
                         st.status === 'rejected'
+                          ? 'text-red-400 font-semibold'
+                          : selectedOperation.isRejected
                           ? 'text-red-400 font-semibold'
                           : st.status === 'completed'
                           ? 'text-emerald-400'
@@ -967,7 +1088,7 @@ const OperationsTimelineViewer = ({
                       : 'text-amber-400'
                   }`}
                 >
-                  {!isSeller && selectedOperation.isRejected
+                  {selectedOperation.isRejected
                     ? 'Motocicleta Rechazada'
                     : selectedOperation.certificationStatus}
                 </span>

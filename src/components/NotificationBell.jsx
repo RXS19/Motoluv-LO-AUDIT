@@ -25,10 +25,120 @@ const formatTimeAgo = (dateStr) => {
   }
 };
 
+// Global shared state for all NotificationBell instances
+let sharedNotifications = [];
+let isStoreInitialized = false;
+let storeLoading = false;
+let currentUserId = null;
+let realtimeChannel = null;
+const storeListeners = new Set();
+
+const emitStoreChange = () => {
+  storeListeners.forEach((listener) => {
+    try {
+      listener([...sharedNotifications]);
+    } catch (e) {
+      console.warn('Error notifying NotificationBell listener:', e);
+    }
+  });
+};
+
+const setSharedNotifications = (updater) => {
+  if (typeof updater === 'function') {
+    sharedNotifications = updater(sharedNotifications);
+  } else {
+    sharedNotifications = Array.isArray(updater) ? updater : [];
+  }
+  emitStoreChange();
+};
+
+const setupRealtimeSubscription = (userId) => {
+  if (!isSupabaseConfigured || !supabase || !userId) return;
+  if (realtimeChannel) {
+    try {
+      supabase.removeChannel(realtimeChannel);
+    } catch {
+      // ignore
+    }
+  }
+
+  realtimeChannel = supabase
+    .channel(`public:notifications:recipient:${userId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'notifications',
+        filter: `recipient_id=eq.${userId}`,
+      },
+      (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newRecord = payload.new;
+          if (!newRecord.read_at) {
+            setSharedNotifications((prev) => {
+              if (prev.some((p) => String(p.id) === String(newRecord.id))) return prev;
+              return [
+                {
+                  id: String(newRecord.id),
+                  recipient_id: String(newRecord.recipient_id),
+                  type: newRecord.type,
+                  title: newRecord.title || 'Notificación',
+                  body: newRecord.body || '',
+                  moto_id: newRecord.moto_id,
+                  apartado_id: newRecord.apartado_id,
+                  offer_id: newRecord.offer_id,
+                  created_at: newRecord.created_at,
+                  read_at: newRecord.read_at,
+                },
+                ...prev,
+              ];
+            });
+          }
+        } else if (payload.eventType === 'UPDATE') {
+          const updatedRecord = payload.new;
+          if (updatedRecord.read_at) {
+            setSharedNotifications((prev) =>
+              prev.filter((p) => String(p.id) !== String(updatedRecord.id))
+            );
+          }
+        } else if (payload.eventType === 'DELETE') {
+          const deletedRecord = payload.old;
+          setSharedNotifications((prev) =>
+            prev.filter((p) => String(p.id) !== String(deletedRecord.id))
+          );
+        }
+      }
+    )
+    .subscribe();
+};
+
+const syncStore = async (userId) => {
+  if (currentUserId !== userId) {
+    currentUserId = userId;
+    sharedNotifications = [];
+    isStoreInitialized = false;
+    setupRealtimeSubscription(userId);
+  }
+
+  if (isStoreInitialized || storeLoading) return;
+  storeLoading = true;
+  try {
+    const notifs = await notificationApi.getUnread();
+    sharedNotifications = Array.isArray(notifs) ? notifs : [];
+    isStoreInitialized = true;
+    emitStoreChange();
+  } catch (err) {
+    console.warn('Error fetching notifications:', err);
+  } finally {
+    storeLoading = false;
+  }
+};
+
 export const NotificationBell = ({ buttonClassName, iconSize = 17, dropdownClassName }) => {
   const { user } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState(sharedNotifications);
   const notifRef = useRef(null);
 
   // Close dropdown on outside click
@@ -42,88 +152,24 @@ export const NotificationBell = ({ buttonClassName, iconSize = 17, dropdownClass
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch real unread notifications from Supabase and subscribe to Realtime
+  // Shared store subscription & sync
   useEffect(() => {
-    let channel = null;
-
-    const loadRealNotifications = async () => {
-      try {
-        const notifs = await notificationApi.getUnread();
-        setNotifications(Array.isArray(notifs) ? notifs : []);
-      } catch (err) {
-        console.warn('Error fetching notifications:', err);
-      }
+    const handleUpdate = (updatedList) => {
+      setNotifications(updatedList);
     };
+    storeListeners.add(handleUpdate);
+    setNotifications([...sharedNotifications]);
 
-    loadRealNotifications();
-
-    if (isSupabaseConfigured && supabase) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        const currentUserId = session?.user?.id;
-        if (!currentUserId) return;
-
-        channel = supabase
-          .channel(`public:notifications:recipient:${currentUserId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'notifications',
-              filter: `recipient_id=eq.${currentUserId}`,
-            },
-            (payload) => {
-              if (payload.eventType === 'INSERT') {
-                const newRecord = payload.new;
-                if (!newRecord.read_at) {
-                  setNotifications((prev) => {
-                    if (prev.some((p) => String(p.id) === String(newRecord.id))) return prev;
-                    return [
-                      {
-                        id: String(newRecord.id),
-                        recipient_id: String(newRecord.recipient_id),
-                        type: newRecord.type,
-                        title: newRecord.title || 'Notificación',
-                        body: newRecord.body || '',
-                        moto_id: newRecord.moto_id,
-                        apartado_id: newRecord.apartado_id,
-                        offer_id: newRecord.offer_id,
-                        created_at: newRecord.created_at,
-                        read_at: newRecord.read_at,
-                      },
-                      ...prev,
-                    ];
-                  });
-                }
-              } else if (payload.eventType === 'UPDATE') {
-                const updatedRecord = payload.new;
-                if (updatedRecord.read_at) {
-                  setNotifications((prev) =>
-                    prev.filter((p) => String(p.id) !== String(updatedRecord.id))
-                  );
-                }
-              } else if (payload.eventType === 'DELETE') {
-                const deletedRecord = payload.old;
-                setNotifications((prev) =>
-                  prev.filter((p) => String(p.id) !== String(deletedRecord.id))
-                );
-              }
-            }
-          )
-          .subscribe();
-      });
-    }
+    syncStore(user?.id);
 
     return () => {
-      if (channel && supabase) {
-        supabase.removeChannel(channel);
-      }
+      storeListeners.delete(handleUpdate);
     };
   }, [user?.id]);
 
   const handleNotificationClick = async (notif) => {
-    // 1. Optimistically remove from state & counter
-    setNotifications((prev) => prev.filter((n) => String(n.id) !== String(notif.id)));
+    // 1. Optimistically update shared store immediately for ALL bells
+    setSharedNotifications((prev) => prev.filter((n) => String(n.id) !== String(notif.id)));
     // 2. Persist read_at in Supabase
     try {
       await notificationApi.markAsRead(notif.id);

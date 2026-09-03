@@ -26,9 +26,25 @@ api.interceptors.request.use(async (config) => {
 
 const formatMotoRecord = (m) => {
   if (!m) return null;
-  const imgs = Array.isArray(m.images) && m.images.length > 0 
-    ? m.images 
-    : (m.image ? [m.image] : []);
+  let imgs = [];
+  if (Array.isArray(m.images) && m.images.length > 0) {
+    imgs = m.images.filter(Boolean);
+  } else if (typeof m.images === 'string' && m.images.trim()) {
+    const trimmed = m.images.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) imgs = parsed.filter(Boolean);
+      } catch {}
+    } else if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      imgs = trimmed.slice(1, -1).split(',').map((s) => s.trim().replace(/^"|"$/g, '')).filter(Boolean);
+    } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/')) {
+      imgs = [trimmed];
+    }
+  }
+  if (imgs.length === 0 && m.image) {
+    imgs = [m.image];
+  }
   
   const isApartada = m.apartado_status === 'APARTADA' || Boolean(m.is_apartada);
 
@@ -776,7 +792,32 @@ export const apartadoApi = {
             .order('created_at', { ascending: false });
 
           if (!error && Array.isArray(data)) {
-            const sellerIds = [...new Set(data.map((a) => a.moto?.owner_id).filter(Boolean))];
+            const missingMotoIds = [...new Set(
+              data.filter((a) => (!a.moto || (Array.isArray(a.moto) && a.moto.length === 0)) && a.moto_id)
+                .map((a) => String(a.moto_id))
+            )];
+            const fetchedMotosMap = {};
+            if (missingMotoIds.length > 0) {
+              try {
+                const { data: mData } = await supabase
+                  .from('motos')
+                  .select('*')
+                  .in('id', missingMotoIds);
+                if (Array.isArray(mData)) {
+                  mData.forEach((m) => {
+                    fetchedMotosMap[String(m.id)] = formatMotoRecord(m);
+                  });
+                }
+              } catch (mErr) {
+                console.warn('Error fetching missing motos for apartados:', mErr);
+              }
+            }
+
+            const sellerIds = [...new Set(data.map((a) => {
+              const rawMoto = a.moto ? (Array.isArray(a.moto) ? a.moto[0] : a.moto) : null;
+              const motoObj = rawMoto ? formatMotoRecord(rawMoto) : (fetchedMotosMap[String(a.moto_id)] || null);
+              return motoObj?.owner_id;
+            }).filter(Boolean))];
             const profilesMap = {};
             if (sellerIds.length > 0) {
               try {
@@ -798,23 +839,26 @@ export const apartadoApi = {
             }
 
             return data.map((a) => {
-              const profileInfo = profilesMap[a.moto?.owner_id];
+              const rawMoto = a.moto ? (Array.isArray(a.moto) ? a.moto[0] : a.moto) : null;
+              const motoObj = rawMoto ? formatMotoRecord(rawMoto) : (fetchedMotosMap[String(a.moto_id)] || null);
+              const profileInfo = profilesMap[motoObj?.owner_id];
               const isVerified = Boolean(
                 profileInfo?.is_verified ||
-                a.moto?.seller_identity_verification_status === 'verified' ||
-                a.moto?.identity_verification_status === 'verified' ||
-                a.moto?.is_verified
+                motoObj?.seller_identity_verification_status === 'verified' ||
+                motoObj?.identity_verification_status === 'verified' ||
+                motoObj?.is_verified
               );
 
               return {
                 ...a,
+                moto: motoObj || a.moto,
                 nod: a.nod || (a.id ? `NOD-${String(a.id).replace(/\D/g, '').slice(0, 6).padStart(6, '0')}` : 'NOD-000100'),
-                moto_brand: a.moto?.brand,
-                moto_model: a.moto?.model,
-                moto_year: a.moto?.year,
-                moto_price: a.moto?.price,
-                moto_image: a.moto?.images?.[0] || a.moto?.image,
-                seller_name: profileInfo?.name || a.moto?.owner_name || 'Vendedor Motoluv',
+                moto_brand: a.moto_brand || motoObj?.brand,
+                moto_model: a.moto_model || motoObj?.model,
+                moto_year: a.moto_year || motoObj?.year,
+                moto_price: a.moto_price || motoObj?.price,
+                moto_image: motoObj?.images?.[0] || motoObj?.image || a.moto_image,
+                seller_name: profileInfo?.name || motoObj?.owner_name || 'Vendedor Motoluv',
                 seller_is_verified: isVerified,
                 buyer_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Comprador',
                 certification_appointment_at: a.certification_appointment_at || null,
@@ -884,7 +928,37 @@ export const apartadoApi = {
             .order('created_at', { ascending: false });
 
           if (!error && Array.isArray(data)) {
-            const filtered = data.filter((a) => a.moto?.owner_id === session.user.id);
+            const missingMotoIds = [...new Set(
+              data.filter((a) => (!a.moto || (Array.isArray(a.moto) && a.moto.length === 0)) && a.moto_id)
+                .map((a) => String(a.moto_id))
+            )];
+            const fetchedMotosMap = {};
+            if (missingMotoIds.length > 0) {
+              try {
+                const { data: mData } = await supabase
+                  .from('motos')
+                  .select('*')
+                  .in('id', missingMotoIds);
+                if (Array.isArray(mData)) {
+                  mData.forEach((m) => {
+                    fetchedMotosMap[String(m.id)] = formatMotoRecord(m);
+                  });
+                }
+              } catch (mErr) {
+                console.warn('Error fetching missing motos for received apartados:', mErr);
+              }
+            }
+
+            const normalizedData = data.map((a) => {
+              const rawMoto = a.moto ? (Array.isArray(a.moto) ? a.moto[0] : a.moto) : null;
+              const motoObj = rawMoto ? formatMotoRecord(rawMoto) : (fetchedMotosMap[String(a.moto_id)] || null);
+              return {
+                ...a,
+                moto: motoObj || a.moto,
+              };
+            });
+
+            const filtered = normalizedData.filter((a) => a.moto?.owner_id === session.user.id);
             const buyerIds = [...new Set(filtered.map((a) => a.buyer_id).filter(Boolean))];
             const profilesMap = {};
             if (buyerIds.length > 0) {
@@ -904,16 +978,17 @@ export const apartadoApi = {
             }
 
             return filtered.map((a) => {
+              const motoObj = a.moto;
               return {
                 ...a,
                 nod: a.nod || (a.id ? `NOD-${String(a.id).replace(/\D/g, '').slice(0, 6).padStart(6, '0')}` : 'NOD-000100'),
-                moto_brand: a.moto?.brand,
-                moto_model: a.moto?.model,
-                moto_year: a.moto?.year,
-                moto_price: a.moto?.price,
-                moto_city: a.moto?.city,
-                moto_image: a.moto?.images?.[0] || a.moto?.image,
-                seller_name: a.moto?.owner_name || session.user.user_metadata?.full_name || 'Vendedor',
+                moto_brand: a.moto_brand || motoObj?.brand,
+                moto_model: a.moto_model || motoObj?.model,
+                moto_year: a.moto_year || motoObj?.year,
+                moto_price: a.moto_price || motoObj?.price,
+                moto_city: a.moto_city || motoObj?.city,
+                moto_image: motoObj?.images?.[0] || motoObj?.image || a.moto_image,
+                seller_name: motoObj?.owner_name || session.user.user_metadata?.full_name || 'Vendedor',
                 buyer_name: profilesMap[a.buyer_id] || a.buyer_name || 'Comprador Motoluv',
                 certification_appointment_at: a.certification_appointment_at || null,
                 certification_appointment_status: a.certification_appointment_status || 'Pendiente',

@@ -184,7 +184,7 @@ const LuChatbot = () => {
       lower.includes('cvv') ||
       lower.includes('secret')
     ) {
-      return 'Por políticas de privacidad y estricta seguridad, jamás puedo solicitar ni compartir información confidencial como números CLABE, contraseñas o datos de pago. 🔒 Si necesitas asistencia con tu cuenta, escribe a contacto@motoluv.mx';
+      return 'Por nuestro Aviso de Privacidad y estricta seguridad, jamás puedo solicitar ni compartir información confidencial como números CLABE, contraseñas o datos de pago. 🔒 Si necesitas asistencia con tu cuenta, escribe a contacto@motoluv.mx';
     }
 
     if (lower.includes('hola') || lower.includes('buenos') || lower.includes('buenas') || lower.includes('que tal') || lower.includes('saludos')) {

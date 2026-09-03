@@ -184,12 +184,20 @@ export default function PrivacyPolicyPage() {
           <div className="text-xs text-zinc-500">
             © 2026 MotoLuv · Nexus Mobility. Todos los derechos reservados.
           </div>
-          <Link
-            to="/"
-            className="btn-red text-xs font-bold uppercase tracking-widest px-5 py-3 rounded-sm"
-          >
-            Volver a la plataforma
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              to="/terminos-y-condiciones"
+              className="text-xs text-zinc-400 hover:text-white transition-colors underline underline-offset-4"
+            >
+              Términos y Condiciones
+            </Link>
+            <Link
+              to="/"
+              className="btn-red text-xs font-bold uppercase tracking-widest px-5 py-3 rounded-sm"
+            >
+              Volver a la plataforma
+            </Link>
+          </div>
         </div>
       </main>
     </div>

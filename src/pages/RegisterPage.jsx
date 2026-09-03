@@ -188,7 +188,7 @@ const RegisterPage = () => {
           <label className="mt-6 flex items-start gap-3 cursor-pointer">
             <input type="checkbox" checked={form.terms} onChange={(e) => update('terms', e.target.checked)} className="mt-1 accent-red-500" />
             <span className="text-xs text-zinc-400 leading-relaxed">
-              Acepto los <Link to="/aviso-de-privacidad" target="_blank" className="text-red-brand hover:underline">Términos y Condiciones</Link> y la <Link to="/aviso-de-privacidad" target="_blank" className="text-red-brand hover:underline">Política de Privacidad</Link> de Motoluv.
+              Acepto los <Link to="/terminos-y-condiciones" target="_blank" className="text-red-brand hover:underline">Términos y Condiciones</Link> y el <Link to="/aviso-de-privacidad" target="_blank" className="text-red-brand hover:underline">Aviso De Privacidad</Link> de Motoluv.
             </span>
           </label>
 

@@ -77,8 +77,8 @@ const Footer = () => {
         <div className="border-t border-black mt-12 pt-6 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-zinc-500">
           <div>© 2026 Motoluv. Todos los derechos reservados.</div>
           <div className="flex gap-6">
-            <Link to="/aviso-de-privacidad" className="hover:text-white transition-colors">Términos y Condiciones</Link>
-            <Link to="/aviso-de-privacidad" className="hover:text-white transition-colors">Política de Privacidad</Link>
+            <Link to="/terminos-y-condiciones" className="hover:text-white transition-colors">Términos y Condiciones</Link>
+            <Link to="/aviso-de-privacidad" className="hover:text-white transition-colors">Aviso De Privacidad</Link>
           </div>
         </div>
       </div>

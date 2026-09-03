@@ -18,6 +18,7 @@ import MyMotosPage from './pages/MyMotosPage';
 import ProfilePage from './pages/ProfilePage';
 import BankAccountPage from './pages/BankAccountPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsPage from './pages/TermsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -62,6 +63,9 @@ function App() {
                     <Route path="/aviso-de-privacidad" element={<PrivacyPolicyPage />} />
                     <Route path="/politica-de-privacidad" element={<PrivacyPolicyPage />} />
                     <Route path="/privacidad" element={<PrivacyPolicyPage />} />
+                    <Route path="/terminos-y-condiciones" element={<TermsPage />} />
+                    <Route path="/terminos" element={<TermsPage />} />
+                    <Route path="/terms" element={<TermsPage />} />
                     <Route path="/panel" element={<ProtectedRoute><DashboardRouter /></ProtectedRoute>} />
                     <Route path="/panel/perfil" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                     <Route path="/perfil" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Shield, Users, FileText, CreditCard, ArrowRight, HelpCircle, Search, HandCoins, UserCheck, ClipboardCheck, PackageCheck, Bike, ShoppingCart, Lock } from 'lucide-react';
+import { Check, Shield, Users, FileText, CreditCard, ArrowRight, Search, HandCoins, UserCheck, ClipboardCheck, PackageCheck, Bike, ShoppingCart, Lock } from 'lucide-react';
 import { packages, sellerPackages } from '../data/plans';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,8 +39,8 @@ const HowItWorksPage = () => {
         <div className="absolute inset-0 grid-bg" />
         <div className="absolute inset-0 hero-vignette" />
         <div className="relative z-10 max-w-5xl mx-auto px-5 lg:px-8 py-24 text-center">
-          <span className="inline-flex items-center gap-2 border border-red-brand/60 text-red-brand text-[11px] tracking-widest uppercase px-3 py-1.5 rounded-full mb-8">
-            <Shield size={12} /> Proceso Seguro
+          <span className="inline-flex items-center border border-red-brand/60 text-red-brand text-[11px] tracking-widest uppercase px-3 py-1.5 rounded-full mb-8">
+            Proceso Seguro
           </span>
           <h1 className="font-display font-bold text-white text-4xl md:text-6xl uppercase leading-tight">
             Compra segura <br /><span className="text-red-brand">con asesor</span>
@@ -226,8 +226,8 @@ const HowItWorksPage = () => {
       {/* FAQ */}
       <section className="max-w-4xl mx-auto px-5 lg:px-8 py-20">
         <div className="text-center mb-12">
-          <span className="inline-flex items-center gap-2 border border-red-brand/60 text-red-brand text-[11px] tracking-widest uppercase px-3 py-1.5 rounded-full mb-4">
-            <HelpCircle size={12} /> Preguntas
+          <span className="inline-flex items-center border border-red-brand/60 text-red-brand text-[11px] tracking-widest uppercase px-3 py-1.5 rounded-full mb-4">
+            Preguntas
           </span>
           <h2 className="font-display font-bold text-white text-3xl md:text-4xl uppercase">
             Preguntas <span className="text-red-brand">frecuentes</span>

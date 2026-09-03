@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShoppingBag, Star, Search, Eye, ShoppingCart, ShieldCheck, CreditCard, Sparkles, Filter } from 'lucide-react';
+import { Star, Search, Eye, ShoppingCart, ShieldCheck, CreditCard, Sparkles, Filter } from 'lucide-react';
 import { accessories } from '../data/accessories';
 import { useCart } from '../context/CartContext';
 import { handleImageError, resolveSafeImageUrl } from '../utils/imageFallback';
@@ -21,9 +21,6 @@ const ShopPage = () => {
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10 pb-8 border-b border-white/10">
         <div>
-          <div className="inline-flex items-center gap-2 text-red-brand text-[11px] font-bold tracking-widest uppercase border border-red-brand/40 bg-red-brand/10 rounded-full px-3 py-1 mb-3">
-            <ShoppingBag size={12} /> Tienda Oficial Motoluv
-          </div>
           <h1 className="font-display font-bold text-white text-4xl md:text-5xl uppercase">
             Accesorios y <span className="text-red-brand">Equipamiento</span>
           </h1>
